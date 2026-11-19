@@ -1,0 +1,48 @@
+# ICPEP Tabulator: Django + PostgreSQL.
+#   docker compose up -d --build
+# The app is published on every host interface, so judges on the same Wi-Fi/LAN
+# can open http://<host-LAN-IP>:${APP_PORT}. Use scripts/start-lan.* to fill in HOST_LAN_IP.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tabulator}
+      POSTGRES_USER: ${POSTGRES_USER:-tabulator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Not published: only the web container talks to the database.
+
+  web:
+    build: .
+    image: icpep-tabulator:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      ADMIN_PASS: ${ADMIN_PASS:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-tabulator}
+      POSTGRES_USER: ${POSTGRES_USER:-tabulator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      HOST_LAN_IP: ${HOST_LAN_IP:-}
+      PUBLIC_PORT: ${APP_PORT:-8000}
+      DETECT_LAN_IPS: "false"
+    ports:
+      # 0.0.0.0 = reachable from other devices on the LAN, not just this computer.
+      - "0.0.0.0:${APP_PORT:-8000}:8000"
+
+volumes:
+  pgdata:

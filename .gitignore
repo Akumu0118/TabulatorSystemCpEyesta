@@ -1,0 +1,14 @@
+node_modules
+dist
+data.json
+.DS_Store
+
+# Python / Django
+.venv/
+__pycache__/
+*.pyc
+backend/.env
+.env
+.env.tmp
+backend/staticfiles/
+*.sqlite3
