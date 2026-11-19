@@ -1,0 +1,228 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---- Design tokens (light) ---- */
+:root {
+  --ground: #F5F6F8;
+  --surface: #FFFFFF;
+  --sunken: #F0F2F5;
+  --ink: #0F172A;
+  --muted: #536071;
+  --line: #E3E7ED;
+  --line-strong: #C9D0DA;
+  --accent: #1F4FD8;
+  --on-accent: #FFFFFF;
+  --accent-ink: #1A3FB0;
+  --accent-soft: #E8EEFC;
+  --gold: #8A5200;
+  --gold-soft: #FDF1DC;
+  --silver-soft: #EEF1F5;
+  --bronze-soft: #F8ECE4;
+  --ok: #0F7A4D;
+  --ok-soft: #E3F4EC;
+  --warn: #9A4300;
+  --warn-soft: #FDEBDD;
+  --danger: #B42318;
+  --danger-soft: #FDECEA;
+  --side: #0F172A;
+  --side-ink: #E6EAF2;
+  --side-muted: #A3AEC2;
+  --side-active: #1E293B;
+  --side-line: #1F2A3D;
+  color-scheme: light;
+}
+
+/* ---- Design tokens (dark) ---- */
+.dark {
+  --ground: #0B1120;
+  --surface: #111A2E;
+  --sunken: #0E1627;
+  --ink: #E6EBF4;
+  --muted: #9AA6B9;
+  --line: #22304A;
+  --line-strong: #33445F;
+  --accent: #7A9BFF;
+  --on-accent: #0B1120;
+  --accent-ink: #A9BFFF;
+  --accent-soft: #1B2A52;
+  --gold: #F2B653;
+  --gold-soft: #3A2A0E;
+  --silver-soft: #1B2436;
+  --bronze-soft: #2E1F16;
+  --ok: #4CC38A;
+  --ok-soft: #0F2E22;
+  --warn: #F59E5B;
+  --warn-soft: #3A220F;
+  --danger: #F97066;
+  --danger-soft: #3A1512;
+  --side: #070C18;
+  --side-active: #16213A;
+  --side-line: #16203A;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, sans-serif;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-silver-soft: var(--silver-soft);
+  --color-bronze-soft: var(--bronze-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-side: var(--side);
+  --color-side-ink: var(--side-ink);
+  --color-side-muted: var(--side-muted);
+  --color-side-active: var(--side-active);
+  --color-side-line: var(--side-line);
+}
+
+html,
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num { font-variant-numeric: tabular-nums; }
+.display { font-family: var(--font-display); letter-spacing: -0.01em; }
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    min-width: 0;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s, border-color 0.15s;
+  }
+  .btn:hover { border-color: var(--line-strong); background: var(--sunken); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+  .btn-danger { color: var(--danger); }
+  .btn-danger:hover { background: var(--danger-soft); border-color: var(--danger); }
+  .btn-lg { min-height: 52px; border-radius: 12px; font-size: 16px; }
+
+  .icon-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    flex: none;
+  }
+  .icon-btn:hover { background: var(--sunken); color: var(--ink); }
+
+  .field {
+    height: 48px;
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 0 14px;
+    font-size: 16px;
+  }
+  .field[aria-invalid="true"] { border: 2px solid var(--danger); }
+
+  .label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
+
+  .score-input {
+    height: 52px;
+    border-radius: 12px;
+    border: 2px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+    text-align: center;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 0;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .score-input::-webkit-outer-spin-button,
+  .score-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .score-input.filled { border-color: var(--accent); }
+  .score-input[aria-invalid="true"] { border-color: var(--danger); }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 999px; background: currentColor; flex: none; }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    overflow-y: auto;
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .dialog {
+    width: 100%;
+    background: var(--surface);
+    color: var(--ink);
+    border-radius: 18px;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.25);
+  }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- Print: only the tally sheet ---- */
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body * { visibility: hidden; }
+  #print-sheet, #print-sheet * { visibility: visible; }
+  #print-sheet { position: absolute; inset: 0; width: auto; padding: 0; box-shadow: none; background: #fff; color: #0F172A; }
+  .no-print { display: none !important; }
+}
