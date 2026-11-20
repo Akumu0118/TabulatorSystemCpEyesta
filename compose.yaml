@@ -1,7 +1,9 @@
 # ICPEP Tabulator: Django + PostgreSQL.
 #   docker compose up -d --build
 # The app is published on every host interface, so judges on the same Wi-Fi/LAN
-# can open http://<host-LAN-IP>:${APP_PORT}. Use scripts/start-lan.* to fill in HOST_LAN_IP.
+# can open http://<host-LAN-IP>:${APP_PORT}, or https://<host-LAN-IP>:${HTTPS_PORT} after the
+# one-time phone setup at http://<host-LAN-IP>:${APP_PORT}/setup.
+# Use scripts/start-lan.* to fill in HOST_LAN_IP and the HTTPS site list.
 
 services:
   db:
@@ -39,10 +41,32 @@ services:
       POSTGRES_PORT: "5432"
       HOST_LAN_IP: ${HOST_LAN_IP:-}
       PUBLIC_PORT: ${APP_PORT:-8000}
+      HTTPS_PORT: ${HTTPS_PORT:-8443}
       DETECT_LAN_IPS: "false"
+      BEHIND_PROXY: "true"
+    # Not published: phones reach it through the proxy below.
+
+  proxy:
+    # Plain HTTP on APP_PORT and local HTTPS on HTTPS_PORT (Caddy's own CA, no internet needed).
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      CADDY_SITES: ${CADDY_SITES:-https://localhost:8443}
+      TLS_DEFAULT_SNI: ${TLS_DEFAULT_SNI:-localhost}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Keeps the certificate authority, so phones only install its certificate once.
+      - caddy_data:/data
+      - caddy_config:/config
     ports:
       # 0.0.0.0 = reachable from other devices on the LAN, not just this computer.
       - "0.0.0.0:${APP_PORT:-8000}:8000"
+      - "0.0.0.0:${HTTPS_PORT:-8443}:8443"
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

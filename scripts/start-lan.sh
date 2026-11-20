@@ -29,6 +29,13 @@ set_kv() {
 IPS=$(lan_ips | grep -vE '^(127\.|169\.254\.)' | sort -u | paste -sd, -)
 set_kv HOST_LAN_IP "$IPS"
 PORT=$(get APP_PORT); [ -n "$PORT" ] || { PORT=8000; set_kv APP_PORT "$PORT"; }
+HTTPS_PORT=$(get HTTPS_PORT); [ -n "$HTTPS_PORT" ] || { HTTPS_PORT=8443; set_kv HTTPS_PORT "$HTTPS_PORT"; }
+# HTTPS certificates are issued by the proxy for exactly these addresses (no internet needed).
+SITES="https://localhost:8443"
+for ip in $(echo "$IPS" | tr ',' ' '); do SITES="$SITES, https://$ip:8443"; done
+set_kv CADDY_SITES "$SITES"
+FIRST_IP=$(echo "$IPS" | cut -d, -f1)
+set_kv TLS_DEFAULT_SNI "${FIRST_IP:-localhost}"
 
 docker compose up -d --build
 
@@ -43,7 +50,11 @@ echo
 echo "ICPEP Tabulator is running."
 echo "  On this computer: http://localhost:$PORT"
 if [ -n "$IPS" ]; then
-  echo "$IPS" | tr ',' '\n' | while read -r ip; do echo "  Judges on the same Wi-Fi/LAN: http://$ip:$PORT"; done
+  echo "$IPS" | tr ',' '\n' | while read -r ip; do
+    echo "  Judges on the same Wi-Fi/LAN: http://$ip:$PORT"
+    echo "  One-time phone setup (works offline after): http://$ip:$PORT/setup"
+  done
+  echo "  Open TCP ports $PORT and $HTTPS_PORT in this computer's firewall if phones cannot connect."
 else
   echo "  No LAN address found. Connect to the event Wi-Fi and run again."
 fi

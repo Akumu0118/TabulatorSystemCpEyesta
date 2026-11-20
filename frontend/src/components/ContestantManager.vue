@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { addCandidate, removeCandidate, updateCandidate } from '../store'
+import { askConfirm } from '../confirm'
 import type { Candidate, TabEvent } from '../types'
 import Icon from './Icon.vue'
 
@@ -25,8 +26,10 @@ const renumber = (c: Candidate, e: Event) => {
   const v = Math.round(Number(valueOf(e)))
   if (v >= 1 && v !== c.number) updateCandidate(c, { number: v })
 }
-const remove = (c: Candidate) => {
-  if (confirm(`Remove #${c.number} ${c.name}? Their scores are deleted too.`)) removeCandidate(props.event, c.id)
+const remove = async (c: Candidate) => {
+  if (await askConfirm({ title: `Remove #${c.number} ${c.name}?`, message: 'Their scores are deleted too.', confirmLabel: 'Remove', danger: true })) {
+    removeCandidate(props.event, c.id)
+  }
 }
 </script>
 

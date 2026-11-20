@@ -48,7 +48,19 @@ TABULATOR_PUBLIC_PORT = os.environ.get('PUBLIC_PORT', '')
 # Skip auto-detecting interfaces (they would be container-internal addresses).
 TABULATOR_DETECT_LAN = env_bool('DETECT_LAN_IPS', True)
 
+# Port of the local-HTTPS entry point (Caddy with its own certificate authority). Phones
+# need HTTPS for the installable, offline-capable app. Empty when HTTPS is not set up.
+TABULATOR_HTTPS_PORT = os.environ.get('HTTPS_PORT', '')
+
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
+if TABULATOR_HTTPS_PORT:
+    CSRF_TRUSTED_ORIGINS += [f'https://{h}:{TABULATOR_HTTPS_PORT}' for h in TABULATOR_LAN_HOSTS + ['localhost']]
+
+# Behind the Caddy proxy: trust its X-Forwarded-Proto so Django knows a request came in over HTTPS,
+# and its X-Forwarded-For so the login rate limit counts each phone separately.
+BEHIND_PROXY = env_bool('BEHIND_PROXY', False)
+if BEHIND_PROXY:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Application definition
@@ -161,6 +173,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
     'DEFAULT_THROTTLE_RATES': {'login': '20/min'},
     'UNAUTHENTICATED_USER': None,
+    'NUM_PROXIES': 1 if BEHIND_PROXY else None,
 }
 
 # Default primary key field type

@@ -43,6 +43,11 @@ if (-not (Get-Value 'POSTGRES_PASSWORD')) { Set-Value 'POSTGRES_PASSWORD' (New-S
 $ips = Get-LanIPs
 Set-Value 'HOST_LAN_IP' ($ips -join ',')
 $port = Get-Value 'APP_PORT'; if (-not $port) { $port = '8000'; Set-Value 'APP_PORT' $port }
+$httpsPort = Get-Value 'HTTPS_PORT'; if (-not $httpsPort) { $httpsPort = '8443'; Set-Value 'HTTPS_PORT' $httpsPort }
+# HTTPS certificates are issued by the proxy for exactly these addresses (no internet needed).
+$sites = @('https://localhost:8443') + ($ips | ForEach-Object { "https://${_}:8443" })
+Set-Value 'CADDY_SITES' ($sites -join ', ')
+Set-Value 'TLS_DEFAULT_SNI' $(if ($ips) { $ips[0] } else { 'localhost' })
 [IO.File]::WriteAllLines($envPath, $lines, (New-Object Text.UTF8Encoding $false))
 
 # Docker prints progress on stderr; Windows PowerShell 5.1 would treat that as an error under 'Stop'.
@@ -63,9 +68,14 @@ if (-not $ok) { Write-Warning 'App did not answer yet. Check: docker compose log
 Write-Host ''
 Write-Host 'ICPEP Tabulator is running.' -ForegroundColor Green
 Write-Host "  On this computer: http://localhost:$port"
-if ($ips) { $ips | ForEach-Object { Write-Host "  Judges on the same Wi-Fi/LAN: http://${_}:$port" -ForegroundColor Cyan } }
+if ($ips) {
+  $ips | ForEach-Object {
+    Write-Host "  Judges on the same Wi-Fi/LAN: http://${_}:$port" -ForegroundColor Cyan
+    Write-Host "  One-time phone setup (works offline after): http://${_}:$port/setup" -ForegroundColor Cyan
+  }
+}
 else { Write-Warning 'No LAN address found. Connect this computer to the event Wi-Fi and run again.' }
 Write-Host ''
-Write-Host 'If other devices cannot connect, allow the port through Windows Firewall (run as Administrator):'
-Write-Host "  New-NetFirewallRule -DisplayName 'ICPEP Tabulator' -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private,Domain"
+Write-Host 'If other devices cannot connect, allow both ports through Windows Firewall (run as Administrator):'
+Write-Host "  New-NetFirewallRule -DisplayName 'ICPEP Tabulator' -Direction Inbound -Protocol TCP -LocalPort $port,$httpsPort -Action Allow -Profile Private,Domain"
 Write-Host 'and make sure the Wi-Fi network is set to Private, not Public.'

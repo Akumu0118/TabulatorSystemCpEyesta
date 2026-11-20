@@ -49,14 +49,20 @@ class EventSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Event
-        fields = ['id', 'name', 'locked', 'criteria', 'candidates']
+        fields = ['id', 'name', 'locked', 'finalized_at', 'criteria', 'candidates']
+        read_only_fields = ['finalized_at']
+
+    def validate(self, attrs):
+        if self.instance is not None and self.instance.finalized_at and attrs.get('locked') is False:
+            raise serializers.ValidationError({'locked': 'Results are final. Reopen the results before unlocking scoring.'})
+        return attrs
 
 
 class JudgeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Judge
-        fields = ['id', 'name', 'code']
-        read_only_fields = ['code']
+        fields = ['id', 'name', 'code', 'last_seen_at']
+        read_only_fields = ['code', 'last_seen_at']
 
 
 class PublicJudgeSerializer(serializers.ModelSerializer):
@@ -80,6 +86,9 @@ class ScoreItemSerializer(serializers.Serializer):
         child=serializers.DecimalField(max_digits=5, decimal_places=2, min_value=0),
         allow_empty=False,
     )
+    # When the sheet was saved on the phone (ms since epoch). Lets the newest sheet win
+    # when the same sheet arrives twice (e.g. over Wi-Fi and by QR).
+    capturedAt = serializers.IntegerField(required=False, min_value=0)
 
     def validate_scores(self, value):
         try:
@@ -90,3 +99,11 @@ class ScoreItemSerializer(serializers.Serializer):
 
 class ScoreSubmissionSerializer(serializers.Serializer):
     items = ScoreItemSerializer(many=True, allow_empty=True)
+
+
+class ScoreImportSerializer(serializers.Serializer):
+    """Sheets the organizer brings in for a judge whose phone could not reach the tabulator."""
+
+    judgeId = serializers.IntegerField()
+    source = serializers.ChoiceField(choices=['qr', 'manual'])
+    items = ScoreItemSerializer(many=True, allow_empty=False)

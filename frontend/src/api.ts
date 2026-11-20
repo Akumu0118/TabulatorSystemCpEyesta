@@ -1,5 +1,5 @@
 import type {
-  AppState, Candidate, Criterion, Id, Judge, Role, ScoreSubmitResult, ServerInfo, Session, TabEvent
+  AppState, Candidate, Criterion, Id, ImportItem, Judge, Role, ScoreSubmitResult, ServerInfo, Session, TabEvent
 } from './types'
 
 /** status 0 means the host could not be reached (offline or timed out). */
@@ -82,6 +82,13 @@ export const api = {
   deleteJudge: (id: Id) => request<void>(`/judges/${id}`, { method: 'DELETE' }),
   regenerateJudgeCode: (id: Id) => request<Judge>(`/judges/${id}/regenerate-code`, { method: 'POST' }),
 
-  submitScores: (items: { eventId: Id; candidateId: Id; scores: Record<string, number> }[]) =>
-    request<ScoreSubmitResult>('/scores', { method: 'POST', body: { items } })
+  submitScores: (items: ImportItem[]) =>
+    request<ScoreSubmitResult>('/scores', { method: 'POST', body: { items } }),
+  importScores: (judgeId: Id, source: 'qr' | 'manual', items: ImportItem[]) =>
+    request<ScoreSubmitResult>('/scores/import', { method: 'POST', body: { judgeId, source, items }, timeout: 10000 }),
+  finalize: (id: Id, force: boolean) =>
+    request<TabEvent & { missing: { judgeId: Id; candidateId: Id }[] }>(`/events/${id}/finalize`, {
+      method: 'POST', body: { force }
+    }),
+  unfinalize: (id: Id) => request<TabEvent>(`/events/${id}/unfinalize`, { method: 'POST' })
 }

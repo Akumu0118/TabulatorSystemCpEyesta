@@ -6,9 +6,11 @@
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.core import signing
+from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -38,6 +40,17 @@ def make_admin_token() -> str:
     return signing.dumps({'role': 'admin'}, salt=ADMIN_SALT)
 
 
+LAST_SEEN_EVERY = timedelta(seconds=15)
+
+
+def touch_last_seen(judge: Judge) -> None:
+    """Record that a judge's phone reached the tabulator; written at most every 15 s."""
+    now = timezone.now()
+    if judge.last_seen_at is None or now - judge.last_seen_at >= LAST_SEEN_EVERY:
+        Judge.objects.filter(pk=judge.pk).update(last_seen_at=now)
+        judge.last_seen_at = now
+
+
 class TabulatorAuthentication(BaseAuthentication):
     def authenticate(self, request):
         header = request.META.get('HTTP_AUTHORIZATION', '')
@@ -53,6 +66,7 @@ class TabulatorAuthentication(BaseAuthentication):
             pass
         judge = Judge.objects.filter(code=token).first()
         if judge:
+            touch_last_seen(judge)
             return Actor('judge', judge), token
         raise AuthenticationFailed('Your session has expired. Please log in again.')
 
