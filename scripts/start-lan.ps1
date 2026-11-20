@@ -181,13 +181,50 @@ if (-not $SkipFirewall) {
 $code = Invoke-Compose @('up', '-d', '--build')
 if ($code -ne 0) { throw "docker compose failed (exit $code). See the output above." }
 
-Write-Host 'Waiting for the app to become healthy...'
+function Get-HealthCode($url) {
+  # curl.exe (built into Windows 10+) ignores the Windows proxy settings and always gives up after
+  # 3 s; Invoke-WebRequest can follow a campus proxy or hang well past its timeout.
+  $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+  if ($curl) {
+    $ErrorActionPreference = 'Continue'
+    $out = & $curl.Source -s -o NUL -w '%{http_code}' --noproxy '*' -m 3 $url 2>$null
+    $ErrorActionPreference = 'Stop'
+    return "$out"
+  }
+  try { return [string](Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 3).StatusCode } catch { return '000' }
+}
+function Get-ContainerStates {
+  $ErrorActionPreference = 'Continue'
+  $rows = & docker compose ps -a --format '{{.Service}}: {{.Status}}' 2>$null
+  $ErrorActionPreference = 'Stop'
+  ($rows | Where-Object { $_ }) -join ' | '
+}
+
+# 127.0.0.1, not "localhost": Docker publishes the ports on IPv4, and localhost may resolve to IPv6 first.
+$healthUrl = "http://127.0.0.1:$port/api/health"
+Write-Host "Waiting for the app to answer at $healthUrl ..."
 $healthy = $false
-for ($i = 0; $i -lt 60; $i++) {
-  try { if ((Invoke-WebRequest "http://localhost:$port/api/health" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) { $healthy = $true; break } } catch {}
+$deadline = (Get-Date).AddMinutes(3)
+$nextReport = (Get-Date).AddSeconds(15)
+while ((Get-Date) -lt $deadline) {
+  if ((Get-HealthCode $healthUrl) -eq '200') { $healthy = $true; break }
+  if ((Get-Date) -ge $nextReport) {
+    Write-Host "  still waiting... $(Get-ContainerStates)"
+    $nextReport = (Get-Date).AddSeconds(15)
+  }
   Start-Sleep -Seconds 2
 }
-if (-not $healthy) { Write-Warning 'App did not answer yet. Check: docker compose logs web' }
+if (-not $healthy) {
+  Write-Host ''
+  Write-Host "The app did not answer at $healthUrl within 3 minutes." -ForegroundColor Red
+  Write-Host "Containers: $(Get-ContainerStates)" -ForegroundColor Red
+  Write-Host 'Last log lines (web and proxy):' -ForegroundColor Red
+  $ErrorActionPreference = 'Continue'
+  & docker compose logs --tail 25 web proxy 2>&1 | ForEach-Object { "  $_" } | Out-Host
+  $ErrorActionPreference = 'Stop'
+  Write-Host 'If both containers are "Up" but nothing answers, Docker Desktop is not forwarding the port:' -ForegroundColor Yellow
+  Write-Host '  restart Docker Desktop, or check that nothing else uses the port: netstat -ano | findstr :8000' -ForegroundColor Yellow
+}
 [void](Test-Applied ($ips -join ','))
 
 Write-Host ''
