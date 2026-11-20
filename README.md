@@ -22,9 +22,42 @@ frontend/               Vue + TS app (Vite)
   src/components/       UI
 ```
 
+## Event network: a phone hotspot, no internet
+```
+ [phone: Wi-Fi hotspot, no internet]
+        |              |
+ [laptop: runs the tabulator]   [judges' tablets]
+```
+A spare phone runs a Wi-Fi hotspot. The laptop and the judges' tablets join it, and the laptop runs everything.
+Nothing uses the internet: fonts, charts, QR codes and the HTTPS certificate are all local.
+
+**Hotspot phone**
+- Turn off the hotspot's auto-off ("Turn off hotspot automatically" / "Timeout"); keep the phone charging.
+- Allow enough devices (laptop + every tablet + one spare). iPhone hotspots allow few devices; Android ones usually 8–10.
+- Give it a name and password you can read out, and don't restart it during the event: a restart can give the laptop
+  a new address (see below).
+
+**Laptop**
+- Plugged in, set to never sleep while plugged in. Join the hotspot, then run the start script below.
+- The script asks once to let the tablets through Windows Firewall (hotspots count as "Public" networks; this needs
+  administrator approval), and picks the laptop's Wi-Fi address even when a VPN (ZeroTier, Tailscale…) is also on.
+- Leave the script's window open. It keeps watching the laptop's address and beeps if it changes.
+
+**Tablets** (the `/setup` page walks through this)
+- Android: when it says the network has no internet, choose to stay connected; turn mobile data off and "switch to
+  mobile data" off, or the tablet stops talking to the laptop. iPad: turn off Wi-Fi Assist on cellular iPads.
+- Forget other Wi-Fi networks nearby, set screen timeout to 10 minutes or more, and keep them charged.
+- Do the one-time setup (certificate + home-screen icon) before the event, with the hotspot that will be used.
+
+**If the laptop's address changes** (hotspot or laptop restarted): the start script updates the HTTPS certificate,
+restarts the tabulator and prints the new address; **Judge access** shows it too. Browsers keep data per address,
+so on each tablet tap **Laptop address changed?** and type the new address. The tablet's unsent sheets, drafts and
+login come along. A tablet that can't reach the laptop at all can still hand its sheets over by QR (**Import sheets**).
+
+Do a dry run with the real phone, laptop and one tablet before the event.
+
 ## Run with Docker (recommended for the event)
-Requires Docker Desktop (Windows/macOS) or Docker Engine + Compose (Linux). Connect the host computer to the
-event Wi-Fi first, then:
+Requires Docker Desktop (Windows/macOS) or Docker Engine + Compose (Linux). Join the event hotspot first, then:
 
 ```powershell
 # Windows
@@ -41,12 +74,13 @@ e.g. `http://192.168.1.20:8000`. The same addresses appear in the app under **Ju
 
 - Admin password: `ADMIN_PASS` in `.env` (default `admin`, so change it before the event).
 - Port: `APP_PORT` in `.env` (default 8000). The app listens on all interfaces; PostgreSQL is not exposed.
-- Changed Wi-Fi? Re-run the script so `HOST_LAN_IP` is refreshed.
-- Judges can't connect? Make sure they're on the same network, the host's Wi-Fi is set to **Private**, and
-  port 8000 is allowed through the firewall. On Windows, as Administrator:
-  `New-NetFirewallRule -DisplayName 'ICPEP Tabulator' -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private,Domain`
-- Many venue/guest Wi-Fi networks block device-to-device traffic ("client isolation"). If so, use a phone
-  hotspot or a dedicated router.
+- Options: `-Ip 192.168.43.25` forces an address, `-NoWatch` starts and exits, `-SkipFirewall` skips the
+  firewall check (`LAN_IP=…` and `--no-watch` for the shell script).
+- Tablets can't connect? Check they're on the hotspot (not another Wi-Fi or mobile data), that the start script's
+  firewall rule exists, and open `http://<laptop address>:8000/api/health` on the tablet. The firewall rule, as
+  Administrator:
+  `New-NetFirewallRule -DisplayName 'ICPEP Tabulator' -Direction Inbound -Protocol TCP -LocalPort 8000,8443 -Action Allow -Profile Any`
+- Venue/guest Wi-Fi often blocks device-to-device traffic ("client isolation"); that's why the hotspot is used.
 
 Everyday commands:
 ```bash
@@ -91,7 +125,7 @@ cd ../backend && ../.venv/Scripts/python manage.py collectstatic --noinput
 ../.venv/Scripts/python manage.py runserver 0.0.0.0:8000
 ```
 Set `DJANGO_DEBUG=false` and a real `DJANGO_SECRET_KEY` in `backend/.env` for the event.
-Log in as Admin, open **Judge access**, and share the link and codes. Judges must be on the same Wi-Fi.
+Log in as Admin, open **Judge access**, and share the link and codes. Tablets must be on the same hotspot.
 
 ## API
 All endpoints are under `/api` and take `Authorization: Bearer <token>` (from `POST /api/auth/login`).

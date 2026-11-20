@@ -22,7 +22,7 @@ const judges = computed(() => data.judges.map(j => {
 <template>
   <section aria-labelledby="sync-panel-title" class="card p-5 flex flex-col gap-4">
     <div class="flex flex-col gap-1">
-      <h2 id="sync-panel-title" class="display text-xl font-bold">Judges' phones</h2>
+      <h2 id="sync-panel-title" class="display text-xl font-bold">Judges' tablets</h2>
       <span class="text-[13px] text-muted">Sheets received per entry · last contact</span>
     </div>
     <p v-if="!judges.length" class="py-6 text-center text-muted">No judges yet. Add them in Judge access.</p>
