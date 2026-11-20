@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { addCriterion, removeCriterion, updateCriterion, ui } from '../store'
+import { askConfirm } from '../confirm'
 import type { Criterion, TabEvent } from '../types'
 import Icon from './Icon.vue'
 
@@ -49,8 +50,10 @@ async function changeMax(c: Criterion, e: Event) {
   if (error) { ui.notice = error; input.value = String(c.max_score) }
 }
 
-const remove = (c: Criterion) => {
-  if (confirm(`Remove "${c.name}"? Scores already given for it are deleted too.`)) removeCriterion(props.event, c.id)
+const remove = async (c: Criterion) => {
+  if (await askConfirm({ title: `Remove "${c.name}"?`, message: 'Scores already given for it are deleted too.', confirmLabel: 'Remove', danger: true })) {
+    removeCriterion(props.event, c.id)
+  }
 }
 </script>
 

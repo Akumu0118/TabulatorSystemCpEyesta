@@ -1,0 +1,41 @@
+# Front door for the tabulator on the event LAN. No internet is ever used:
+# Caddy acts as its own certificate authority ("tls internal") for the HTTPS entry point.
+#
+#   http://<host>:8000   the app over plain HTTP, the phone setup page, and the CA certificate
+#   https://<host>:8443  the same app over HTTPS, so phones can install it and open it offline
+#
+# CADDY_SITES and TLS_DEFAULT_SNI are written to .env by scripts/start-lan.*
+{
+	admin off
+	auto_https disable_redirects
+	local_certs
+	skip_install_trust
+	# Phones connecting by IP send no server name; answer with the certificate for the main LAN IP.
+	default_sni {$TLS_DEFAULT_SNI:localhost}
+}
+
+(ca_download) {
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition "attachment; filename=icpep-tabulator.crt"
+		header Cache-Control no-store
+		file_server
+	}
+}
+
+http://:8000 {
+	import ca_download
+	handle {
+		reverse_proxy web:8000
+	}
+}
+
+{$CADDY_SITES:https://localhost:8443} {
+	tls internal
+	import ca_download
+	handle {
+		reverse_proxy web:8000
+	}
+}

@@ -3,6 +3,8 @@ import { createApp } from 'vue'
 import '@fontsource-variable/inter'
 import '@fontsource-variable/space-grotesk'
 import App from './App.vue'
+import { registerServiceWorker } from './pwa'
 import './style.css'
 
 createApp(App).mount('#app')
+registerServiceWorker()

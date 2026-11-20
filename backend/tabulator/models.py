@@ -9,6 +9,9 @@ class Event(models.Model):
 
     name = models.CharField(max_length=120)
     locked = models.BooleanField(default=False, help_text='When locked, judges can no longer submit scores.')
+    finalized_at = models.DateTimeField(
+        null=True, blank=True, help_text='Set when results are final; scores are frozen and can be presented.'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -63,6 +66,7 @@ def generate_judge_code():
 class Judge(models.Model):
     name = models.CharField(max_length=120)
     code = models.CharField(max_length=4, unique=True, default=generate_judge_code)
+    last_seen_at = models.DateTimeField(null=True, blank=True, help_text='Last time this judge reached the tabulator.')
 
     class Meta:
         ordering = ['id']
@@ -78,6 +82,9 @@ class Judge(models.Model):
 class Score(models.Model):
     """One judge's raw score (0 to the criterion's max_score) for one entry on one criterion."""
 
+    NETWORK, QR, MANUAL = 'network', 'qr', 'manual'
+    SOURCES = [(NETWORK, 'Sent from the judge'), (QR, 'Imported by QR'), (MANUAL, 'Entered by the organizer')]
+
     judge = models.ForeignKey(Judge, on_delete=models.CASCADE, related_name='scores')
     candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name='scores')
     criterion = models.ForeignKey(Criterion, on_delete=models.CASCADE, related_name='scores')
@@ -88,7 +95,12 @@ class Score(models.Model):
 
         if self.value is not None and self.criterion_id and self.value > self.criterion.max_score:
             raise ValidationError({'value': f'Must be at most {self.criterion.max_score}.'})
+
     updated_at = models.DateTimeField(auto_now=True)
+    client_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text='When the judge saved this sheet on their phone. The newest sheet wins.'
+    )
+    source = models.CharField(max_length=10, choices=SOURCES, default=NETWORK)
 
     class Meta:
         constraints = [

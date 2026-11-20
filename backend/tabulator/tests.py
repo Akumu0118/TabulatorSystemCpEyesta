@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
@@ -7,6 +8,7 @@ from .models import Candidate, Criterion, Event, Judge, Score
 @override_settings(TABULATOR_ADMIN_PASS='secret')
 class TabulatorApiTests(APITestCase):
     def setUp(self):
+        cache.clear()  # the login rate limit counts across tests otherwise
         # Start from a clean slate rather than the seed migration's defaults.
         Event.objects.all().delete()
         Judge.objects.all().delete()
@@ -114,11 +116,27 @@ class TabulatorApiTests(APITestCase):
         ok = self.client.patch(f'/api/criteria/{self.c2.id}', {'weight': 30}, format='json')
         self.assertEqual(ok.status_code, 200)
 
-    @override_settings(TABULATOR_LAN_HOSTS=['192.168.1.50'], TABULATOR_PUBLIC_PORT='8080', TABULATOR_DETECT_LAN=False)
+    @override_settings(
+        TABULATOR_LAN_HOSTS=['192.168.1.50'], TABULATOR_PUBLIC_PORT='8080', TABULATOR_HTTPS_PORT='8443',
+        TABULATOR_DETECT_LAN=False,
+    )
     def test_info_uses_host_lan_ip_in_docker(self):
         self.login('admin', 'secret')
         res = self.client.get('/api/info')
-        self.assertEqual(res.data, {'port': 8080, 'ips': ['192.168.1.50']})
+        self.assertEqual(res.data, {'port': 8080, 'httpsPort': 8443, 'ips': ['192.168.1.50']})
+
+    def test_service_worker_is_served_from_the_root_with_scope_header(self):
+        res = self.client.get('/sw.js')
+        # 404 until the frontend is built; when present it must allow the root scope.
+        if res.status_code == 200:
+            self.assertEqual(res['Service-Worker-Allowed'], '/')
+            self.assertIn('no-cache', res['Cache-Control'])
+
+    def test_app_page_is_always_revalidated(self):
+        res = self.client.get('/')
+        # 503 until the frontend is built; when served, a stale copy must not pin an old build.
+        if res.status_code == 200:
+            self.assertEqual(res['Cache-Control'], 'no-cache')
 
     def test_health_is_public(self):
         self.assertEqual(self.client.get('/api/health').data, {'ok': True})
@@ -129,3 +147,126 @@ class TabulatorApiTests(APITestCase):
         self.assertNotEqual(res.data['code'], '1234')
         self.client.credentials(HTTP_AUTHORIZATION='Bearer 1234')
         self.assertEqual(self.client.get('/api/state').status_code, 401)
+
+    # --- offline sync: the newest sheet wins -------------------------------------------
+
+    def item(self, a, b, captured_at, candidate=None):
+        return {
+            'eventId': self.event.id,
+            'candidateId': (candidate or self.cand).id,
+            'scores': {str(self.c1.id): a, str(self.c2.id): b},
+            'capturedAt': captured_at,
+        }
+
+    def values(self, judge=None):
+        return sorted(float(v) for v in Score.objects.filter(judge=judge or self.judge).values_list('value', flat=True))
+
+    def test_older_sheet_arriving_late_is_acknowledged_but_not_applied(self):
+        self.login('judge', '1234')
+        self.client.post('/api/scores', {'items': [self.item(90, 80, 2_000_000)]}, format='json')
+        res = self.client.post('/api/scores', {'items': [self.item(10, 10, 1_000_000)]}, format='json')
+        self.assertEqual(res.data['saved'][0]['stale'], True)
+        self.assertEqual(self.values(), [80.0, 90.0])
+
+    def test_newer_sheet_replaces_older(self):
+        self.login('judge', '1234')
+        self.client.post('/api/scores', {'items': [self.item(10, 10, 1_000_000)]}, format='json')
+        res = self.client.post('/api/scores', {'items': [self.item(90, 80, 2_000_000)]}, format='json')
+        self.assertEqual(res.data['saved'][0]['stale'], False)
+        self.assertEqual(self.values(), [80.0, 90.0])
+
+    def test_judge_requests_update_last_seen(self):
+        self.assertIsNone(self.judge.last_seen_at)
+        self.login('judge', '1234')
+        self.client.get('/api/state')
+        self.judge.refresh_from_db()
+        self.assertIsNotNone(self.judge.last_seen_at)
+        first = self.judge.last_seen_at
+        self.client.get('/api/state')  # within 15 s: not written again
+        self.judge.refresh_from_db()
+        self.assertEqual(self.judge.last_seen_at, first)
+
+    # --- organizer import (QR / manual) ------------------------------------------------
+
+    def import_(self, items, source='qr', judge=None):
+        payload = {'judgeId': (judge or self.judge).id, 'source': source, 'items': items}
+        return self.client.post('/api/scores/import', payload, format='json')
+
+    def test_import_is_admin_only(self):
+        self.login('judge', '1234')
+        self.assertEqual(self.import_([self.item(5, 5, 1)]).status_code, 403)
+
+    def test_import_works_while_locked_and_records_source(self):
+        self.event.locked = True
+        self.event.save()
+        self.login('admin', 'secret')
+        res = self.import_([self.item(70, 60, 1_000_000)], source='manual')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.data['saved']), 1)
+        self.assertEqual(set(Score.objects.values_list('source', flat=True)), {'manual'})
+
+    def test_import_keeps_newer_scores_from_the_network(self):
+        self.login('judge', '1234')
+        self.client.post('/api/scores', {'items': [self.item(90, 80, 2_000_000)]}, format='json')
+        self.client.credentials()
+        self.login('admin', 'secret')
+        res = self.import_([self.item(10, 10, 1_000_000)])
+        self.assertTrue(res.data['saved'][0]['stale'])
+        self.assertEqual(self.values(), [80.0, 90.0])
+
+    def test_import_is_blocked_once_finalized(self):
+        self.event.locked = True
+        self.event.save()
+        self.login('admin', 'secret')
+        self.client.post(f'/api/events/{self.event.id}/finalize', {'force': True}, format='json')
+        res = self.import_([self.item(5, 5, 1)])
+        self.assertEqual(res.data['saved'], [])
+        self.assertIn('final', res.data['rejected'][0]['reason'])
+
+    def test_import_rejects_score_above_max(self):
+        self.c1.max_score = 10
+        self.c1.save()
+        self.login('admin', 'secret')
+        res = self.import_([self.item(12, 5, 1)])
+        self.assertEqual(res.data['saved'], [])
+
+    # --- finalize ------------------------------------------------------------------------
+
+    def test_finalize_requires_lock(self):
+        self.login('admin', 'secret')
+        res = self.client.post(f'/api/events/{self.event.id}/finalize', {}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_finalize_lists_missing_sheets_unless_forced(self):
+        Score.objects.create(judge=self.judge, candidate=self.cand, criterion=self.c1, value=5)
+        Score.objects.create(judge=self.judge, candidate=self.cand, criterion=self.c2, value=5)
+        self.event.locked = True
+        self.event.save()
+        self.login('admin', 'secret')
+        res = self.client.post(f'/api/events/{self.event.id}/finalize', {}, format='json')
+        self.assertEqual(res.status_code, 409)
+        self.assertEqual(res.data['missing'], [{'judgeId': self.other.id, 'candidateId': self.cand.id}])
+        forced = self.client.post(f'/api/events/{self.event.id}/finalize', {'force': True}, format='json')
+        self.assertEqual(forced.status_code, 200)
+        self.assertIsNotNone(forced.data['finalized_at'])
+
+    def test_finalized_event_cannot_be_unlocked_until_reopened(self):
+        self.event.locked = True
+        self.event.save()
+        self.login('admin', 'secret')
+        self.client.post(f'/api/events/{self.event.id}/finalize', {'force': True}, format='json')
+        res = self.client.patch(f'/api/events/{self.event.id}', {'locked': False}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.client.post(f'/api/events/{self.event.id}/unfinalize')
+        res = self.client.patch(f'/api/events/{self.event.id}', {'locked': False}, format='json')
+        self.assertEqual(res.status_code, 200)
+
+    def test_state_exposes_finalized_and_last_seen_to_admin_only(self):
+        self.login('admin', 'secret')
+        data = self.client.get('/api/state').data
+        self.assertIn('finalized_at', data['events'][0])
+        self.assertIn('last_seen_at', data['judges'][0])
+        self.assertIn('serverTime', data)
+        self.client.credentials()
+        self.login('judge', '1234')
+        self.assertNotIn('last_seen_at', self.client.get('/api/state').data['judges'][0])

@@ -21,6 +21,8 @@ export interface TabEvent {
   id: Id
   name: string
   locked: boolean
+  /** ISO time when results were made final, or null. */
+  finalized_at: string | null
   criteria: Criterion[]
   candidates: Candidate[]
 }
@@ -30,6 +32,8 @@ export interface Judge {
   name: string
   /** Only present for the admin. */
   code?: string
+  /** Only present for the admin: ISO time this judge's phone last reached the tabulator. */
+  last_seen_at?: string | null
 }
 
 /** criterionId → raw score from 0 to that criterion's max_score */
@@ -41,6 +45,7 @@ export interface AppState {
   events: TabEvent[]
   judges: Judge[]
   scores: ScoreMap
+  serverTime?: string
 }
 
 export interface Session {
@@ -55,6 +60,16 @@ export interface PendingScore {
   candidateId: Id
   judgeId: Id
   scores: ScoreSheet
+  /** When the judge saved this sheet on the phone (ms epoch). The newest sheet wins on the server. */
+  capturedAt: number
+}
+
+/** A sheet brought in by the organizer (QR or typed). */
+export interface ImportItem {
+  eventId: Id
+  candidateId: Id
+  scores: ScoreSheet
+  capturedAt?: number
 }
 
 export interface ScoreRow {
@@ -72,10 +87,12 @@ export interface RankingRow extends Candidate {
 
 export interface ServerInfo {
   port: number
+  /** Port of the local-HTTPS entry point (Caddy), needed for the installable app. 0 when not set up. */
+  httpsPort: number
   ips: string[]
 }
 
 export interface ScoreSubmitResult {
-  saved: { eventId: Id; candidateId: Id }[]
+  saved: { eventId: Id; candidateId: Id; stale?: boolean }[]
   rejected: { eventId: Id; candidateId: Id; reason: string }[]
 }

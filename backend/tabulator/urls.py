@@ -15,5 +15,6 @@ urlpatterns = [
     path('info', views.info, name='info'),
     path('health', views.health, name='health'),
     path('scores', views.submit_scores, name='submit-scores'),
+    path('scores/import', views.import_scores, name='import-scores'),
     path('', include(router.urls)),
 ]

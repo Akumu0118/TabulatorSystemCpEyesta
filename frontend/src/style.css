@@ -29,6 +29,13 @@
   --side-muted: #A3AEC2;
   --side-active: #1E293B;
   --side-line: #1F2A3D;
+  /* Chart series, fixed order (validated for colour-blind separation; always shown with a legend). */
+  --c1: #2a78d6;
+  --c2: #eb6834;
+  --c3: #1baf7a;
+  --c4: #eda100;
+  --c5: #8a63d2;
+  --c6: #d6457f;
   color-scheme: light;
 }
 
@@ -58,6 +65,12 @@
   --side: #070C18;
   --side-active: #16213A;
   --side-line: #16203A;
+  --c1: #3987e5;
+  --c2: #d95926;
+  --c3: #199e70;
+  --c4: #c98500;
+  --c5: #9b7be0;
+  --c6: #e0609a;
   color-scheme: dark;
 }
 
@@ -217,6 +230,48 @@ body {
 }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- Motion ---- */
+@keyframes fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { 0% { opacity: 0; transform: scale(0.6); } 60% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes ping { 0% { transform: scale(1); opacity: 0.7; } 80%, 100% { transform: scale(2.4); opacity: 0; } }
+@keyframes scanline { 0%, 100% { top: 4%; } 50% { top: 94%; } }
+@keyframes burst { from { transform: scale(0.8); opacity: 1; } to { transform: scale(2.6); opacity: 0; } }
+
+.anim-fade-up { animation: fade-up 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.anim-pop { animation: pop-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-spin { animation: spin 0.9s linear infinite; }
+.anim-pulse { animation: pulse-soft 1.6s ease-in-out infinite; }
+.ping { position: relative; }
+.ping::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: currentColor; animation: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
+.scrim { animation: fade-in 0.2s ease-out both; }
+.dialog { animation: dialog-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Vue <Transition name="slide"> / "fade" */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.22s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.slide-enter-active, .slide-leave-active { transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.slide-enter-from { opacity: 0; transform: translateX(var(--slide-from, 24px)); }
+.slide-leave-to { opacity: 0; transform: translateX(calc(var(--slide-from, 24px) * -1)); }
+.slide-leave-active { transition-duration: 0.14s; }
+.list-move, .list-enter-active, .list-leave-active { transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease; }
+.list-enter-from, .list-leave-to { opacity: 0; transform: translateY(8px); }
+.list-leave-active { position: absolute; }
+.toast-enter-active, .toast-leave-active { transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translate(var(--tx, 0), 16px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ---- Print: only the tally sheet ---- */
 @media print {

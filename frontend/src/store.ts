@@ -1,12 +1,15 @@
 import { reactive } from 'vue'
 import { api, ApiError, setTokenProvider } from './api'
 import { rankings } from './scoring'
+import { askConfirm } from './confirm'
 import type {
-  AppState, Candidate, Criterion, Id, Judge, PendingScore, Role, ScoreMap, ScoreRow, Session, TabEvent, Theme
+  AppState, Candidate, Criterion, Id, ImportItem, Judge, PendingScore, Role, ScoreMap, ScoreRow, Session, TabEvent, Theme
 } from './types'
 
 /* ---- local persistence (offline cache for judges) ---- */
-const KEYS = { data: 'tab_data', session: 'tab_session', pending: 'tab_pending', theme: 'tab_theme' } as const
+const KEYS = {
+  data: 'tab_data', session: 'tab_session', pending: 'tab_pending', theme: 'tab_theme', lastSync: 'tab_last_sync'
+} as const
 
 function read<T>(key: string): T | null {
   try { return JSON.parse(localStorage.getItem(key) ?? 'null') as T | null } catch { return null }
@@ -23,9 +26,17 @@ export const ui = reactive({
   session: read<Session>(KEYS.session),
   activeEvent: null as Id | null,
   navOpen: false,
-  pending: read<PendingScore[]>(KEYS.pending) ?? [],
+  pending: (read<PendingScore[]>(KEYS.pending) ?? []).map(p => ({ ...p, capturedAt: p.capturedAt ?? Date.now() })),
   online: false,
-  lastSync: null as number | null,
+  /** A request is in flight because of "Sync now" or the retry loop. */
+  syncing: false,
+  lastSync: read<number>(KEYS.lastSync),
+  /** When the next automatic retry happens (ms epoch), while offline. */
+  nextRetry: null as number | null,
+  /** server clock minus this device's clock, so "seen 8 s ago" does not trust a wrong phone clock */
+  serverOffset: 0,
+  /** The judge's code was changed by the admin: their data stays here until they enter the new code. */
+  needsCode: false,
   theme: (localStorage.getItem(KEYS.theme) as Theme | null) ?? (prefersDark() ? 'dark' : 'light'),
   /** Short message shown as a toast (errors, rejected sheets). */
   notice: ''
@@ -37,6 +48,7 @@ export const isAdmin = () => ui.session?.role === 'admin'
 export const currentEvent = (): TabEvent | undefined =>
   data.events.find(e => e.id === ui.activeEvent) ?? data.events[0]
 export const rankingsFor = (event: TabEvent | undefined) => rankings(event, data.judges, data.scores)
+export const myPending = () => ui.pending.filter(p => p.judgeId === ui.session?.id)
 
 export function setTheme(theme: Theme) {
   ui.theme = theme
@@ -49,8 +61,18 @@ export function setTheme(theme: Theme) {
 function track(err: unknown): string {
   if (!(err instanceof ApiError)) return 'Something went wrong.'
   ui.online = err.status !== 0
-  if (err.status === 401 && ui.session) clearSession()
+  if (err.status === 401 && ui.session) {
+    // A judge whose code changed keeps everything on the phone; only the code is asked again.
+    if (ui.session.role === 'judge') ui.needsCode = true
+    else clearSession()
+  }
   return err.message
+}
+
+function markSynced() {
+  ui.online = true
+  ui.lastSync = Date.now()
+  write(KEYS.lastSync, ui.lastSync)
 }
 
 /** Runs an admin action; on failure shows the error and re-syncs so the UI reflects the server. */
@@ -76,15 +98,15 @@ function overlayPending(scores: ScoreMap): ScoreMap {
 }
 
 export async function pull(): Promise<boolean> {
-  if (!ui.session) return false
+  if (!ui.session || ui.needsCode) return false
   try {
     const s = await api.state()
     data.events = s.events
     data.judges = s.judges
     data.scores = overlayPending(s.scores)
+    if (s.serverTime) ui.serverOffset = Date.parse(s.serverTime) - Date.now()
     if (ui.activeEvent !== null && !data.events.some(e => e.id === ui.activeEvent)) ui.activeEvent = null
-    ui.online = true
-    ui.lastSync = Date.now()
+    markSynced()
     if (!isAdmin()) write(KEYS.data, data)
     return true
   } catch (err) {
@@ -96,38 +118,78 @@ export async function pull(): Promise<boolean> {
 /* ---- judges: save locally first, then send when the host is reachable ---- */
 function savePending() { write(KEYS.pending, ui.pending) }
 
-export async function flush() {
+/** Sends this judge's queued sheets. Returns false when the host could not be reached. */
+export async function flush(): Promise<boolean> {
+  if (ui.needsCode) return false
   const judgeId = ui.session?.role === 'judge' ? ui.session.id : null
   // Only send this judge's sheets; another judge's queued sheets wait for their own login.
   const sent = ui.pending.filter(p => p.judgeId === judgeId)
-  if (!sent.length) return
+  if (!sent.length) return true
   try {
-    const res = await api.submitScores(sent.map(({ eventId, candidateId, scores }) => ({ eventId, candidateId, scores })))
-    ui.online = true
+    const res = await api.submitScores(
+      sent.map(({ eventId, candidateId, scores, capturedAt }) => ({ eventId, candidateId, scores, capturedAt }))
+    )
+    // Drop what was sent, unless the judge changed it again while the request was in flight.
     ui.pending = ui.pending.filter(p => !sent.includes(p))
     savePending()
-    ui.lastSync = Date.now()
+    markSynced()
     if (res.rejected.length) {
       ui.notice = `${res.rejected.length} sheet(s) were not accepted: ${res.rejected[0].reason}`
       void pull()
     }
+    return true
   } catch (err) {
     track(err)
+    return !(err instanceof ApiError && err.status === 0)
   }
 }
 
 export function submitScores(eventId: Id, rows: ScoreRow[]) {
   if (ui.session?.role !== 'judge') return
   const judgeId = ui.session.id
+  const capturedAt = Date.now()
   for (const { candidateId, scores } of rows) {
     ((data.scores[eventId] ??= {})[candidateId] ??= {})[judgeId] = { ...scores }
     const key = sheetKey({ eventId, candidateId, judgeId })
     ui.pending = ui.pending.filter(p => sheetKey(p) !== key)
-    ui.pending.push({ eventId, candidateId, judgeId, scores: { ...scores } })
+    ui.pending.push({ eventId, candidateId, judgeId, scores: { ...scores }, capturedAt })
   }
   savePending()
   write(KEYS.data, data)
-  void flush()
+  void syncNow()
+}
+
+/* ---- sync loop: steady every 4 s while online, backing off to 30 s while offline ---- */
+let timer: ReturnType<typeof setTimeout> | undefined
+let failures = 0
+let running: Promise<boolean> | null = null
+
+async function tick(): Promise<boolean> {
+  if (!ui.session) return true // nothing to sync; keep the steady pace
+  if (ui.needsCode) return false
+  ui.syncing = true
+  try {
+    const sent = isAdmin() ? true : await flush()
+    const pulled = await pull()
+    return sent && pulled
+  } finally {
+    ui.syncing = false
+  }
+}
+
+function schedule(ok: boolean) {
+  clearTimeout(timer)
+  failures = ok ? 0 : failures + 1
+  const delay = ok ? 4000 : Math.min(30000, 2000 * 2 ** (failures - 1)) + Math.random() * 1000
+  ui.nextRetry = ok ? null : Date.now() + delay
+  timer = setTimeout(() => void syncNow(), delay)
+}
+
+/** Try to reach the tabulator right away (button, reconnect, app back in view). */
+export function syncNow(): Promise<boolean> {
+  if (running) return running
+  running = tick().then(ok => { schedule(ok); return ok }).finally(() => { running = null })
+  return running
 }
 
 /* ---- auth ---- */
@@ -138,24 +200,47 @@ export async function login(role: Role, secret: string): Promise<string | null> 
     return track(err)
   }
   write(KEYS.session, ui.session)
+  ui.needsCode = false
   ui.activeEvent = null
-  await pull()
-  if (role === 'judge') void flush()
+  await syncNow()
+  return null
+}
+
+/** The judge enters the new code their organizer gave them; nothing stored on the phone is lost. */
+export async function reenterCode(code: string): Promise<string | null> {
+  const before = ui.session
+  try {
+    const next = await api.login('judge', code)
+    if (before && next.id !== before.id) {
+      return `That code belongs to ${next.name}. Ask the organizer for ${before.name}'s new code.`
+    }
+    ui.session = next
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return err.message
+    return track(err)
+  }
+  write(KEYS.session, ui.session)
+  ui.needsCode = false
+  await syncNow()
   return null
 }
 
 function clearSession() {
   ui.session = null
+  ui.needsCode = false
   ui.activeEvent = null
   localStorage.removeItem(KEYS.session)
   localStorage.removeItem(KEYS.data)
   Object.assign(data, { events: [], judges: [], scores: {} })
 }
 
-export function logout() {
-  const mine = ui.pending.filter(p => p.judgeId === ui.session?.id).length
-  if (mine && ui.session?.role === 'judge' &&
-      !confirm(`${mine} score sheet(s) have not reached the admin yet. They stay on this device and are sent the next time you log in. Log out anyway?`)) return
+export async function logout() {
+  const mine = myPending().length
+  if (mine && ui.session?.role === 'judge' && !(await askConfirm({
+    title: 'Log out anyway?',
+    message: `${mine} score sheet${mine === 1 ? ' has' : 's have'} not reached the tabulator yet. They stay on this phone and are sent the next time you log in.`,
+    confirmLabel: 'Log out'
+  }))) return
   clearSession()
 }
 
@@ -201,18 +286,44 @@ export const removeJudge = (id: Id) => act(async () => {
 })
 export const regenCode = (j: Judge) => act(async () => { Object.assign(j, await api.regenerateJudgeCode(j.id)) })
 
+/** Brings in sheets from a judge's phone (QR) or typed by the organizer. Throws an Error with a readable message. */
+export async function importSheets(judgeId: Id, source: 'qr' | 'manual', items: ImportItem[]) {
+  try {
+    const res = await api.importScores(judgeId, source, items)
+    await pull()
+    return res
+  } catch (err) {
+    throw new Error(track(err))
+  }
+}
+
+/** Finalizes results. Returns the missing sheets when blocked (and not forced), or null on success. */
+export async function finalizeEvent(ev: TabEvent, force = false) {
+  try {
+    const res = await api.finalize(ev.id, force)
+    ev.finalized_at = res.finalized_at
+    return null
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      return (err.body as { missing: { judgeId: Id; candidateId: Id }[] }).missing
+    }
+    throw new Error(track(err))
+  }
+}
+export const unfinalizeEvent = (ev: TabEvent) =>
+  act(async () => { Object.assign(ev, await api.unfinalize(ev.id)) })
+
 /* ---- lifecycle ---- */
 let started = false
 export function start() {
   setTheme(ui.theme)
   if (started) return
   started = true
-  void pull()
-  const tick = async () => {
-    if (!ui.session) return
-    if (!isAdmin()) await flush()
-    await pull()
-  }
-  setInterval(tick, 4000)
-  addEventListener('online', tick)
+  // Ask the browser not to evict this site's storage (scores waiting on the phone live there).
+  void navigator.storage?.persist?.().catch(() => false)
+  void syncNow()
+  addEventListener('online', () => void syncNow())
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void syncNow()
+  })
 }
