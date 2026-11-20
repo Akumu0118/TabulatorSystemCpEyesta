@@ -88,13 +88,25 @@ function Set-LanEnv($ips) {
 }
 
 function Invoke-Compose([string[]]$composeArgs) {
-  # Docker prints progress on stderr; Windows PowerShell 5.1 would treat that as an error under 'Stop'.
+  # Start-Process in this window: docker writes straight to the console (its progress display needs a
+  # real console; piping it fails with "failed to get console"), and its output can't leak into this
+  # function's return value.
+  $p = Start-Process -FilePath 'docker' -ArgumentList (@('compose') + $composeArgs) -NoNewWindow -Wait -PassThru
+  $p.ExitCode
+}
+
+function Test-Applied($expected) {
+  # The address the running app was started with; if it differs, "Judge access" shows a stale address.
   $ErrorActionPreference = 'Continue'
-  # Out-Host: show the output without it becoming part of this function's return value.
-  & docker compose @composeArgs | Out-Host
-  $code = $LASTEXITCODE
+  $running = (& docker compose exec -T web printenv HOST_LAN_IP 2>$null | Out-String).Trim()
   $ErrorActionPreference = 'Stop'
-  $code
+  if ($running -ne $expected) {
+    Write-Host ''
+    Write-Host "  The tabulator is still running with the address '$running', not '$expected'." -ForegroundColor Red
+    Write-Host '  Run: docker compose up -d   (or run this script again), then check Judge access.' -ForegroundColor Red
+    return $false
+  }
+  $true
 }
 
 function Write-Addresses($primary) {
@@ -176,6 +188,7 @@ for ($i = 0; $i -lt 60; $i++) {
   Start-Sleep -Seconds 2
 }
 if (-not $healthy) { Write-Warning 'App did not answer yet. Check: docker compose logs web' }
+[void](Test-Applied ($ips -join ','))
 
 Write-Host ''
 Write-Host 'ICPEP Tabulator is running.' -ForegroundColor Green
@@ -213,6 +226,7 @@ while ($true) {
   Set-LanEnv $now
   $code = Invoke-Compose @('up', '-d')
   if ($code -ne 0) { Write-Warning "docker compose failed (exit $code). Run this script again." }
+  [void](Test-Applied ($now -join ','))
   try { [Console]::Beep(880, 300); [Console]::Beep(880, 300) } catch {}
   Write-Addresses $primary
   if ($old) { Write-Moved $old $primary }
