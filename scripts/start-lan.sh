@@ -13,6 +13,18 @@ ENV_FILE=.env
 WATCH=1
 [ "${1:-}" = "--no-watch" ] && WATCH=0
 
+# Windows (Git Bash, MSYS, Cygwin): this script can't read Windows network settings, so run the
+# PowerShell version, which also handles the firewall and Docker Desktop.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    PS="$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32/WindowsPowerShell/v1.0/powershell.exe"
+    set -- -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PWD/scripts/start-lan.ps1")" \
+      ${LAN_IP:+-Ip "$LAN_IP"} $([ "$WATCH" = 0 ] && echo -NoWatch)
+    echo "Windows detected: running scripts/start-lan.ps1 in PowerShell."
+    exec "$PS" "$@"
+    ;;
+esac
+
 lan_ips() {
   if [ -n "${LAN_IP:-}" ]; then echo "$LAN_IP"; return; fi
   if command -v ip >/dev/null 2>&1; then
@@ -20,13 +32,16 @@ lan_ips() {
     # even without internet). Then any other address, skipping VPN and container interfaces.
     ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}'
     ip -4 -o addr show scope global 2>/dev/null | grep -vE ' (docker|br-|veth|virbr|zt|tailscale|tun|wg)' | awk '{print $4}' | cut -d/ -f1
-  elif command -v ipconfig >/dev/null 2>&1; then
+  elif [ "$(uname -s)" = Darwin ]; then
     for ifc in en0 en1; do ipconfig getifaddr "$ifc" 2>/dev/null || true; done
   else
     hostname -I 2>/dev/null | tr ' ' '\n'
   fi
 }
-detect() { lan_ips | grep -vE '^(127\.|169\.254\.|$)' | awk '!seen[$0]++' | paste -sd, -; }
+# Only real IPv4 addresses: anything else would end up in the HTTPS proxy's config and break it.
+detect() {
+  lan_ips | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' | grep -vE '^(127\.|169\.254\.)' | awk '!seen[$0]++' | paste -sd, -
+}
 secret() { head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 get() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- || true; }
 set_kv() {
