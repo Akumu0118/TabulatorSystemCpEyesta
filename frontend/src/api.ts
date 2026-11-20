@@ -43,7 +43,7 @@ async function request<T>(path: string, { method = 'GET', body, timeout = 4000 }
       body: body === undefined ? undefined : JSON.stringify(body)
     })
   } catch {
-    throw new ApiError(0, 'Cannot reach the tabulator host. Make sure you are on the event Wi-Fi.')
+    throw new ApiError(0, 'Cannot reach the tabulator laptop. Make sure this device is on the event hotspot.')
   } finally {
     clearTimeout(timer)
   }

@@ -46,7 +46,7 @@ const submit = async () => {
         <img :src="logo" alt="ICpEP.SE Cagayan State University Chapter logo" class="w-[clamp(140px,18vw,200px)] h-auto" />
         <h1 class="display text-[clamp(30px,3.4vw,42px)] leading-[1.1] font-bold">Live scoring for every event on campus.</h1>
         <p class="text-base leading-relaxed text-side-muted">
-          Judges score from their phones over the event Wi-Fi. Totals and rankings update on the tabulator as each sheet comes in. No internet needed.
+          Judges score on tablets over the event hotspot. Totals and rankings update on the tabulator as each sheet comes in. No internet needed.
         </p>
       </div>
       <span class="text-[13px] text-side-muted">ICpEP.SE · Cagayan State University Chapter</span>

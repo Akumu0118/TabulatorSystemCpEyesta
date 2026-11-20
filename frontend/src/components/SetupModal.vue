@@ -22,10 +22,10 @@ const withPort = (scheme: string, host: string, p: number) =>
 /** Per LAN address: the first-time setup page, the secure app, and plain http as a fallback. */
 const addresses = computed<Address[]>(() => hosts.value.flatMap(h => {
   const plain = withPort('http', h, port.value)
-  if (!httpsPort.value) return [{ label: 'App', hint: 'Open on the event Wi-Fi', url: plain }]
+  if (!httpsPort.value) return [{ label: 'App', hint: 'Open on the event hotspot', url: plain }]
   return [
-    { label: 'First-time setup', hint: 'Lets the phone install the app and keep working offline', url: `${plain}/setup?https=${httpsPort.value}` },
-    { label: 'App (after setup)', hint: 'Secure; opens even when the Wi-Fi drops', url: withPort('https', h, httpsPort.value) },
+    { label: 'First-time setup', hint: 'Lets the tablet install the app and keep working offline', url: `${plain}/setup?https=${httpsPort.value}` },
+    { label: 'App (after setup)', hint: 'Secure; opens even when the hotspot drops', url: withPort('https', h, httpsPort.value) },
     { label: 'Without setup', hint: 'Works while the page stays open', url: plain }
   ]
 }))
@@ -62,7 +62,7 @@ const rename = (j: Judge, e: Event) => {
 const newCode = async (j: Judge) => {
   if (await askConfirm({
     title: `Give ${j.name} a new code?`,
-    message: 'Their phone asks for the new code; scores saved on it are kept.',
+    message: 'Their tablet asks for the new code; scores saved on it are kept.',
     confirmLabel: 'New code'
   })) regenCode(j)
 }
@@ -80,12 +80,17 @@ const remove = async (j: Judge) => {
         <div class="flex items-start justify-between gap-3 px-6 pt-[22px]">
           <div class="flex flex-col gap-1">
             <h2 id="access-title" class="display text-[22px] font-bold">Judge access</h2>
-            <span class="text-sm text-muted">Judges' phones and this computer must be on the same Wi-Fi. No internet is needed.</span>
+            <span class="text-sm text-muted">The judges' tablets and this laptop join the same hotspot. No internet is needed.</span>
           </div>
           <button class="icon-btn" aria-label="Close" @click="$emit('close')"><Icon name="x" /></button>
         </div>
 
         <div class="flex flex-col gap-6 px-6 py-5">
+          <div v-if="!onlyLocal" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 rounded-xl bg-accent-soft text-accent-ink">
+            <span class="text-sm font-semibold">Laptop address</span>
+            <span class="num display text-[28px] font-bold tracking-wide select-all">{{ hosts[0] }}</span>
+            <span class="text-xs basis-full">If the hotspot restarts and this changes, judges tap <b>Laptop address changed?</b> on their tablet and type the new one.</span>
+          </div>
           <section class="grid sm:grid-cols-[180px_1fr] gap-5 items-center">
             <div class="w-[180px] h-[180px] mx-auto rounded-xl border border-line bg-white p-2 grid place-items-center">
               <img v-if="qr" :src="qr" :alt="`QR code for ${addresses[0]?.url}`" class="w-full h-full" />
@@ -94,7 +99,7 @@ const remove = async (j: Judge) => {
               <p class="font-semibold">1. Judges scan the code{{ httpsPort ? ' (one-time setup, then install the app)' : '' }} or open an address</p>
               <p v-if="onlyLocal" role="alert" class="text-sm font-semibold text-danger">
                 This computer's LAN address is unknown, and judges cannot use "localhost". Re-run the start-lan script
-                while connected to the event Wi-Fi, or set HOST_LAN_IP in .env.
+                while connected to the event hotspot, or set HOST_LAN_IP in .env.
               </p>
               <div v-for="a in addresses" :key="a.url" class="flex flex-col gap-1">
                 <span class="text-xs text-muted"><b class="text-ink">{{ a.label }}</b> · {{ a.hint }}</span>
@@ -124,8 +129,8 @@ const remove = async (j: Judge) => {
           </section>
 
           <p class="text-sm text-muted p-4 rounded-xl bg-ground">
-            If a phone drops off the Wi-Fi, its scores stay saved on the phone and are sent here automatically when it
-            reconnects. If it never reconnects, use <b>Import sheets</b> on the dashboard to scan the phone's QR code.
+            If a tablet drops off the hotspot, its scores stay saved on the tablet and are sent here automatically when it
+            reconnects. If it never reconnects, use <b>Import sheets</b> on the dashboard to scan the tablet's QR code.
           </p>
         </div>
       </div>

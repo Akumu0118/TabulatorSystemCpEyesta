@@ -10,11 +10,15 @@ import ScoreBar from './charts/ScoreBar.vue'
 import TotalRing from './charts/TotalRing.vue'
 import JudgeHandover from './JudgeHandover.vue'
 import JudgeCodeScreen from './JudgeCodeScreen.vue'
+import MoveAddress from './MoveAddress.vue'
+import { movedFrom } from '../move-accept'
 
 type View = 'one' | 'all' | 'sheets' | 'handover'
 type Status = 'sent' | 'waiting' | 'draft' | 'empty'
 
 const view = ref<View>('one')
+const moving = ref(false)
+const moved = ref(movedFrom)
 const event = computed(() => currentEvent())
 const criteria = computed(() => event.value?.criteria ?? [])
 const candidates = computed(() => [...(event.value?.candidates ?? [])].sort((a, b) => a.number - b.number))
@@ -254,15 +258,23 @@ const chipCls = (c: Candidate, i: number) => {
     </header>
     <JudgeCodeScreen v-if="ui.needsCode && view !== 'handover'" @handover="view = 'handover'" />
 
+    <MoveAddress v-if="moving" @close="moving = false" />
+
     <main class="flex-1 w-full max-w-[640px] mx-auto px-4 pt-4 pb-4 flex flex-col gap-3">
+      <div v-if="moved" role="status" class="flex gap-3 items-center px-4 py-3 rounded-[14px] bg-ok-soft text-ok text-sm anim-fade-up">
+        <span class="flex-1"><strong>Connected to the laptop's new address.</strong> Your sheets came along from <span class="num">{{ moved.replace(/^https?:\/\//, '') }}</span>.</span>
+        <button class="icon-btn" aria-label="Dismiss" @click="moved = null"><Icon name="x" /></button>
+      </div>
       <Transition name="fade">
-        <div v-if="!ui.online && waitingCount && view !== 'handover'" role="status" class="flex gap-3 items-start px-4 py-3.5 rounded-[14px] bg-warn-soft text-warn text-sm leading-normal">
+        <div v-if="!ui.online && (waitingCount || ui.nextRetry !== null) && view !== 'handover'" role="status" class="flex gap-3 items-start px-4 py-3.5 rounded-[14px] bg-warn-soft text-warn text-sm leading-normal">
           <Icon name="wifiOff" :size="22" class="shrink-0 mt-px" />
           <span class="flex-1 flex flex-col gap-2">
-            <span><strong>{{ waitingCount }} sheet{{ waitingCount > 1 ? 's are' : ' is' }} saved on this phone.</strong> They're sent automatically when the phone is back on the event Wi-Fi<template v-if="retryIn !== null"> (next try in {{ retryIn }} s)</template>.</span>
+            <span v-if="waitingCount"><strong>{{ waitingCount }} sheet{{ waitingCount > 1 ? 's are' : ' is' }} saved on this tablet.</strong> They're sent automatically when it reaches the laptop again<template v-if="retryIn !== null"> (next try in {{ retryIn }} s)</template>.</span>
+            <span v-else><strong>Can't reach the laptop.</strong> You can keep scoring; sheets are saved on this tablet<template v-if="retryIn !== null"> (next try in {{ retryIn }} s)</template>.</span>
             <span class="flex flex-wrap gap-x-4 gap-y-1 font-semibold">
               <button class="underline underline-offset-2" @click="syncNow()">Try now</button>
-              <button class="underline underline-offset-2" @click="view = 'handover'">Hand over by QR</button>
+              <button class="underline underline-offset-2" @click="moving = true">Laptop address changed?</button>
+              <button v-if="waitingCount" class="underline underline-offset-2" @click="view = 'handover'">Hand over by QR</button>
             </span>
           </span>
         </div>
