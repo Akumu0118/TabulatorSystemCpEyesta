@@ -2,7 +2,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
-from .models import Candidate, Criterion, Event, Judge, Score
+from .models import Candidate, Category, Criterion, Event, Judge, Score
 
 
 @override_settings(TABULATOR_ADMIN_PASS='secret')
@@ -270,3 +270,40 @@ class TabulatorApiTests(APITestCase):
         self.client.credentials()
         self.login('judge', '1234')
         self.assertNotIn('last_seen_at', self.client.get('/api/state').data['judges'][0])
+
+    def test_categories_group_entries_and_appear_in_state(self):
+        self.login('admin', 'secret')
+        res = self.client.post('/api/categories', {'event': self.event.id, 'name': ' Female ', 'order': 0}, format='json')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['name'], 'Female')
+        female = res.data['id']
+        dup = self.client.post('/api/categories', {'event': self.event.id, 'name': 'female'}, format='json')
+        self.assertEqual(dup.status_code, 400)
+        res = self.client.post(
+            '/api/candidates', {'event': self.event.id, 'category': female, 'number': 2, 'name': 'B'}, format='json'
+        )
+        self.assertEqual(res.status_code, 201)
+        event = self.client.get('/api/state').data['events'][0]
+        self.assertEqual([c['name'] for c in event['categories']], ['Female'])
+        self.assertEqual({c['name']: c['category'] for c in event['candidates']}, {'Candidate 1': None, 'B': female})
+
+    def test_category_must_belong_to_the_entrys_event(self):
+        self.login('admin', 'secret')
+        other = Event.objects.create(name='MTV')
+        foreign = Category.objects.create(event=other, name='Solo')
+        res = self.client.patch(f'/api/candidates/{self.cand.id}', {'category': foreign.id}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_deleting_a_category_keeps_its_entries(self):
+        self.login('admin', 'secret')
+        cat = Category.objects.create(event=self.event, name='Male')
+        self.cand.category = cat
+        self.cand.save()
+        self.assertEqual(self.client.delete(f'/api/categories/{cat.id}').status_code, 204)
+        self.cand.refresh_from_db()
+        self.assertIsNone(self.cand.category)
+
+    def test_judges_cannot_edit_categories(self):
+        self.login('judge', '1234')
+        res = self.client.post('/api/categories', {'event': self.event.id, 'name': 'X'}, format='json')
+        self.assertIn(res.status_code, (401, 403))

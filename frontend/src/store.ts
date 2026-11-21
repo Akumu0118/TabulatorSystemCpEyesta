@@ -3,7 +3,7 @@ import { api, ApiError, setTokenProvider } from './api'
 import { rankings } from './scoring'
 import { askConfirm } from './confirm'
 import type {
-  AppState, Candidate, Criterion, Id, ImportItem, Judge, PendingScore, Role, ScoreMap, ScoreRow, Session, TabEvent, Theme
+  AppState, Candidate, Category, Criterion, Id, ImportItem, Judge, PendingScore, Role, ScoreMap, ScoreRow, Session, TabEvent, Theme
 } from './types'
 
 /* ---- local persistence (offline cache for judges) ---- */
@@ -268,13 +268,26 @@ export const removeCriterion = (ev: TabEvent, id: Id) => act(async () => {
   ev.criteria = ev.criteria.filter(c => c.id !== id)
 })
 
-export const addCandidate = (ev: TabEvent, number: number, name: string) =>
-  act(async () => { ev.candidates.push(await api.createCandidate(ev.id, number, name)) })
+export const addCandidate = (ev: TabEvent, number: number, name: string, category: Id | null = null) =>
+  act(async () => { ev.candidates.push(await api.createCandidate(ev.id, number, name, category)) })
 export const updateCandidate = (c: Candidate, patch: Partial<Omit<Candidate, 'id'>>) =>
   act(async () => { Object.assign(c, await api.updateCandidate(c.id, patch)) })
 export const removeCandidate = (ev: TabEvent, id: Id) => act(async () => {
   await api.deleteCandidate(id)
   ev.candidates = ev.candidates.filter(c => c.id !== id)
+})
+
+export const addCategory = (ev: TabEvent, name: string) => act(async () => {
+  const order = Math.max(-1, ...(ev.categories ?? []).map(c => c.order)) + 1
+  ;(ev.categories ??= []).push(await api.createCategory(ev.id, name, order))
+}, { inline: true })
+export const renameCategory = (c: Category, name: string) =>
+  act(async () => { Object.assign(c, await api.updateCategory(c.id, { name })) }, { inline: true })
+/** Removes the category; its entries stay in the event without a category. */
+export const removeCategory = (ev: TabEvent, id: Id) => act(async () => {
+  await api.deleteCategory(id)
+  ev.categories = ev.categories.filter(c => c.id !== id)
+  for (const c of ev.candidates) if (c.category === id) c.category = null
 })
 
 export const addJudge = (name: string) => act(async () => { data.judges.push(await api.createJudge(name)) })

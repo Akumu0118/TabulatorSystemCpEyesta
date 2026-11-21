@@ -41,10 +41,29 @@ class Criterion(models.Model):
         return f'{self.name} ({self.weight}%, out of {self.max_score})'
 
 
+class Category(models.Model):
+    """A group of entries ranked on its own within an event (e.g. Female and Male in a pageant)."""
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='categories')
+    name = models.CharField(max_length=60)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+        verbose_name_plural = 'categories'
+
+    def __str__(self):
+        return f'{self.event.name} · {self.name}'
+
+
 class Candidate(models.Model):
     """An entry in an event: a contestant or a team."""
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='candidates')
+    category = models.ForeignKey(
+        Category, null=True, blank=True, on_delete=models.SET_NULL, related_name='candidates',
+        help_text='Entries are ranked within their category. Leave empty when the event has no categories.',
+    )
     number = models.PositiveIntegerField()
     name = models.CharField(max_length=120)
 

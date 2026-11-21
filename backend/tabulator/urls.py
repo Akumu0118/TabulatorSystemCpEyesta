@@ -7,6 +7,7 @@ router = DefaultRouter(trailing_slash=False)
 router.register('events', views.EventViewSet)
 router.register('criteria', views.CriterionViewSet)
 router.register('candidates', views.CandidateViewSet)
+router.register('categories', views.CategoryViewSet)
 router.register('judges', views.JudgeViewSet)
 
 urlpatterns = [

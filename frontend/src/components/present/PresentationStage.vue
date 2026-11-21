@@ -155,6 +155,8 @@ const tableRh = computed(() => {
 })
 
 const showBrand = computed(() => !!step.value && !['title', 'closing', 'drumroll'].includes(step.value.kind))
+/** The category the current slide is about ("Female"), so the audience always knows which list they are seeing. */
+const group = computed(() => (step.value && 'group' in step.value ? step.value.group : undefined))
 </script>
 
 <template>
@@ -173,6 +175,9 @@ const showBrand = computed(() => !!step.value && !['title', 'closing', 'drumroll
 
       <Transition name="brand">
         <div v-if="showBrand" class="brand"><img :src="logo" alt="" /><span>{{ event }}</span></div>
+      </Transition>
+      <Transition name="brand" mode="out-in">
+        <div v-if="group" :key="group" class="group-tag">{{ group }}</div>
       </Transition>
 
       <Transition name="deck" mode="out-in">
@@ -268,7 +273,7 @@ const showBrand = computed(() => !!step.value && !['title', 'closing', 'drumroll
             <div class="center">
               <p class="lead-in">And now</p>
               <h1 v-if="phase >= 1" class="mega gold-text zoom-in">The final results</h1>
-              <p v-if="phase >= 2" class="sub fade">{{ step.event }}</p>
+              <p v-if="phase >= 2" class="sub fade">{{ step.group ? `${step.event} · ${step.group}` : step.event }}</p>
             </div>
           </template>
 
@@ -434,6 +439,7 @@ const showBrand = computed(() => !!step.value && !['title', 'closing', 'drumroll
 
 .brand { position: absolute; left: 64px; top: 48px; display: flex; align-items: center; gap: 18px; z-index: 3; color: var(--muted); font-size: 24px; font-weight: 600; }
 .brand img { width: 56px; height: 56px; object-fit: contain; }
+.group-tag { position: absolute; right: 64px; top: 52px; z-index: 3; padding: 10px 26px; border-radius: 999px; border: 2px solid rgba(244, 201, 93, .55); background: rgba(244, 201, 93, .12); color: #F4C95D; font-size: 26px; font-weight: 700; letter-spacing: .04em; }
 .brand-enter-active, .brand-leave-active { transition: opacity .6s, transform .6s; }
 .brand-enter-from, .brand-leave-to { opacity: 0; transform: translateY(-16px); }
 

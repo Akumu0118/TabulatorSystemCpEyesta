@@ -1,173 +1,39 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { data, ui, currentEvent, logout, submitScores, syncNow } from '../store'
-import { fmt, parseScore, scoreError, weighted } from '../scoring'
-import { ago, useNow } from '../motion'
-import type { HandoverPayload } from '../handover'
-import type { Candidate, Criterion, Id, ScoreRow } from '../types'
+import { onBeforeUnmount, ref } from 'vue'
+import { data, ui, logout, syncNow } from '../store'
+import { STATUS_CLS, STATUS_TEXT, useJudgeSheet, type SheetStatus } from '../judgeSheet'
+import type { Candidate } from '../types'
 import Icon from './Icon.vue'
 import ScoreBar from './charts/ScoreBar.vue'
 import TotalRing from './charts/TotalRing.vue'
 import JudgeHandover from './JudgeHandover.vue'
 import JudgeCodeScreen from './JudgeCodeScreen.vue'
+import JudgeTablet from './JudgeTablet.vue'
 import MoveAddress from './MoveAddress.vue'
 import { movedFrom } from '../move-accept'
 
 type View = 'one' | 'all' | 'sheets' | 'handover'
-type Status = 'sent' | 'waiting' | 'draft' | 'empty'
 
 const view = ref<View>('one')
 const moving = ref(false)
 const moved = ref(movedFrom)
-const event = computed(() => currentEvent())
-const criteria = computed(() => event.value?.criteria ?? [])
-const candidates = computed(() => [...(event.value?.candidates ?? [])].sort((a, b) => a.number - b.number))
-const judgeId = computed(() => ui.session?.id)
-const locked = computed(() => !!event.value?.locked)
+/** One sheet state for both layouts, so turning the tablet keeps drafts, entry and category. */
+const sheet = useJudgeSheet()
+const {
+  event, criteria, locked, cats, hasCats, catIdx, candidates, allCandidates, label, pickCat, doneIn,
+  getScore, setScore, errorFor, filledCount, rowReady, rowTotalNum, rowTotal, status,
+  counts, catCounts, readyToSend, complete, waitingCount, submitReady,
+  syncState, syncText, retryIn, lastSyncText, handoverPayload, idx, dir, cur
+} = sheet
 
-/* ---- drafts: typed but not yet submitted; kept on this phone across reloads ---- */
-const DRAFT_KEY = `tab_draft_${ui.session?.id ?? 'x'}`
-const draft = ref<Record<string, number | ''>>(readDrafts())
-function readDrafts() {
-  try { return JSON.parse(localStorage.getItem(DRAFT_KEY) ?? '{}') as Record<string, number | ''> } catch { return {} }
-}
-watch(draft, d => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)) } catch { /* storage full */ } }, { deep: true })
+/** Landscape tablets (and wide windows) get the three-column layout with the in-app keypad. */
+const mq = window.matchMedia('(orientation: landscape) and (min-width: 900px)')
+const wide = ref(mq.matches)
+const onMq = (e: MediaQueryListEvent) => { wide.value = e.matches }
+mq.addEventListener('change', onMq)
+onBeforeUnmount(() => mq.removeEventListener('change', onMq))
 
-const key = (cId: Id, kId: Id) => `${event.value?.id}:${cId}:${kId}`
-const saved = (cId: Id, kId: Id): number | '' =>
-  (event.value && judgeId.value !== undefined ? data.scores[event.value.id]?.[cId]?.[judgeId.value]?.[kId] : undefined) ?? ''
-
-function getScore(cId: Id, kId: Id): number | '' {
-  const k = key(cId, kId)
-  return k in draft.value ? draft.value[k] : saved(cId, kId)
-}
-function setScore(cId: Id, kId: Id, raw: string) {
-  const v = parseScore(raw)
-  const k = key(cId, kId)
-  if (v === saved(cId, kId)) delete draft.value[k]
-  else draft.value[k] = v
-}
-const errorFor = (cId: Id, k: Criterion) => scoreError(k, getScore(cId, k.id))
-const filledCount = (cId: Id) => criteria.value.filter(k => getScore(cId, k.id) !== '' && !errorFor(cId, k)).length
-const rowReady = (cId: Id) => criteria.value.length > 0 && filledCount(cId) === criteria.value.length
-const rowDirty = (cId: Id) => criteria.value.some(k => key(cId, k.id) in draft.value)
-
-function rowTotalNum(cId: Id): number | null {
-  if (!rowReady(cId)) return null
-  return criteria.value.reduce((sum, k) => sum + weighted(k, Number(getScore(cId, k.id))), 0)
-}
-function rowTotal(cId: Id): string {
-  const t = rowTotalNum(cId)
-  return t === null ? '–' : fmt(t)
-}
-
-function status(cId: Id): Status {
-  if (rowDirty(cId)) return 'draft'
-  const ev = event.value
-  if (ev && ui.pending.some(p => p.eventId === ev.id && p.candidateId === cId && p.judgeId === judgeId.value)) return 'waiting'
-  if (ev && judgeId.value !== undefined && data.scores[ev.id]?.[cId]?.[judgeId.value]) return 'sent'
-  return 'empty'
-}
-const STATUS_TEXT: Record<Status, string> = {
-  sent: 'Sent to tabulator',
-  waiting: 'Saved here, waiting for the tabulator',
-  draft: 'Changed, not submitted yet',
-  empty: 'Not scored yet'
-}
-const STATUS_CLS: Record<Status, string> = {
-  sent: 'text-ok font-semibold', waiting: 'text-warn font-semibold', draft: 'text-accent-ink font-semibold', empty: 'text-muted'
-}
-
-/** Sheets that are complete and changed since the last submit. */
-const readyToSend = computed(() => candidates.value.filter(c => rowDirty(c.id) && rowReady(c.id)))
-const complete = computed(() => candidates.value.filter(c => rowReady(c.id)).length)
-const waitingCount = computed(() => ui.pending.filter(p => p.judgeId === judgeId.value).length)
-
-function submitReady() {
-  const ev = event.value
-  if (!ev || ev.locked || !readyToSend.value.length) return
-  const rows: ScoreRow[] = readyToSend.value.map(c => ({
-    candidateId: c.id,
-    scores: Object.fromEntries(criteria.value.map(k => [k.id, Number(getScore(c.id, k.id))]))
-  }))
-  submitScores(ev.id, rows)
-  for (const { candidateId } of rows) for (const k of criteria.value) delete draft.value[key(candidateId, k.id)]
-}
-
-/* ---- sync status ---- */
-const now = useNow()
-const syncState = computed(() => ui.syncing ? 'syncing' : ui.online ? 'ok' : 'off')
-const syncText = computed(() => {
-  if (ui.syncing) return 'Syncing…'
-  if (ui.online) return ui.lastSync ? `Synced · ${ago(now.value - ui.lastSync)}` : 'Connected'
-  return waitingCount.value ? `Offline · ${waitingCount.value} waiting` : 'Offline'
-})
-const retryIn = computed(() => ui.nextRetry ? Math.max(0, Math.ceil((ui.nextRetry - now.value) / 1000)) : null)
-const lastSyncText = computed(() => ui.lastSync ? ago(now.value - ui.lastSync) : 'not yet')
-
-/** Sheet progress for the segmented bar and the stacked summary. */
-const counts = computed(() => {
-  const c = { sent: 0, waiting: 0, draft: 0, empty: 0 }
-  for (const x of candidates.value) c[status(x.id)]++
-  return c
-})
-const SEG_CLS: Record<Status, string> = { sent: 'bg-[#34D399]', waiting: 'bg-[#FB923C]', draft: 'bg-[#7A9BFF]', empty: 'bg-[#334155]' }
-
-/** Every sheet this phone has for the event; unsent ones carry their capture time, sent ones lose to the server's copy. */
-const handoverPayload = computed<HandoverPayload | null>(() => {
-  const ev = event.value
-  const jId = judgeId.value
-  if (!ev || jId === undefined) return null
-  const sheets: HandoverPayload['sheets'] = []
-  for (const c of candidates.value) {
-    const p = ui.pending.find(x => x.eventId === ev.id && x.candidateId === c.id && x.judgeId === jId)
-    const s = p?.scores ?? data.scores[ev.id]?.[c.id]?.[jId]
-    if (s) sheets.push({ candidateId: c.id, capturedAt: p?.capturedAt ?? 1, scores: { ...s } })
-  }
-  return { judgeId: jId, eventId: ev.id, sheets }
-})
-
-/* ---- keep the phone usable: no accidental reload, no screen sleep ---- */
-const hasUnsaved = () => waitingCount.value > 0 || Object.keys(draft.value).length > 0
-function guard(e: BeforeUnloadEvent) {
-  if (!hasUnsaved()) return
-  e.preventDefault()
-  e.returnValue = ''
-}
-type WakeLock = { release: () => Promise<void> }
-let wake: WakeLock | null = null
-async function keepAwake() {
-  const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<WakeLock> } }
-  if (document.visibilityState !== 'visible' || !nav.wakeLock) return
-  try { wake = await nav.wakeLock.request('screen') } catch { /* not allowed (plain http or low battery) */ }
-}
-const prevOverscroll = document.documentElement.style.overscrollBehaviorY
-onMounted(() => {
-  window.addEventListener('beforeunload', guard)
-  document.addEventListener('visibilitychange', keepAwake)
-  document.documentElement.style.overscrollBehaviorY = 'none' // no pull-to-refresh
-  void keepAwake()
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('beforeunload', guard)
-  document.removeEventListener('visibilitychange', keepAwake)
-  document.documentElement.style.overscrollBehaviorY = prevOverscroll
-  void wake?.release().catch(() => {})
-})
-
-/* ---- one-by-one navigation ---- */
-const idx = ref(0)
-const dir = ref(1)
-watch(idx, (n, o) => { dir.value = n >= o ? 1 : -1 })
-watch(candidates, list => {
-  if (idx.value >= list.length) idx.value = Math.max(0, list.length - 1)
-}, { immediate: true })
-watch(() => event.value?.id, () => {
-  // Start on the first entry that still needs scores.
-  const first = candidates.value.findIndex(c => !rowReady(c.id))
-  idx.value = first === -1 ? 0 : first
-}, { immediate: true })
-const cur = computed<Candidate | undefined>(() => candidates.value[idx.value])
+const SEG_CLS: Record<SheetStatus, string> = { sent: 'bg-[#34D399]', waiting: 'bg-[#FB923C]', draft: 'bg-[#7A9BFF]', empty: 'bg-[#334155]' }
 
 const chipCls = (c: Candidate, i: number) => {
   if (i === idx.value) return 'bg-accent text-white border-transparent'
@@ -180,7 +46,13 @@ const chipCls = (c: Candidate, i: number) => {
 </script>
 
 <template>
-  <div class="min-h-dvh flex flex-col bg-ground text-ink">
+  <MoveAddress v-if="moving && wide && view !== 'handover'" @close="moving = false" />
+  <JudgeTablet
+    v-if="wide && view !== 'handover'"
+    :s="sheet" :view="view" :moved="moved"
+    @view="v => (view = v)" @moving="moving = true" @dismiss-moved="moved = null"
+  />
+  <div v-else class="min-h-dvh flex flex-col bg-ground text-ink">
     <header class="bg-side text-side-ink">
       <div class="max-w-[640px] mx-auto px-5 pt-5 pb-4 flex flex-col gap-3.5">
         <div class="flex items-center justify-between gap-3">
@@ -226,20 +98,29 @@ const chipCls = (c: Candidate, i: number) => {
           >{{ v === 'one' ? 'One by one' : 'All entries' }}</button>
         </div>
 
+        <div v-if="hasCats && (view === 'one' || view === 'all')" role="tablist" aria-label="Category" class="flex gap-1 p-1 rounded-xl bg-side-active overflow-x-auto">
+          <button
+            v-for="(g, i) in cats" :key="g.id ?? 'none'" role="tab" :aria-selected="catIdx === i"
+            class="flex-1 min-w-24 h-11 px-3 rounded-[9px] text-sm font-bold flex items-center justify-center gap-2"
+            :class="catIdx === i ? 'bg-white text-[#0F172A]' : 'text-side-ink'"
+            @click="pickCat(i)"
+          >{{ g.name }}<span class="num text-xs font-semibold opacity-75">{{ doneIn(g.candidates) }}/{{ g.candidates.length }}</span></button>
+        </div>
+
         <nav v-if="view === 'one' && candidates.length" aria-label="Entries" class="flex gap-2 overflow-x-auto pb-0.5 -mx-1 px-1">
           <button
             v-for="(c, i) in candidates" :key="c.id"
             class="display shrink-0 min-w-12 h-11 px-2 rounded-[10px] border font-bold text-base"
             :class="chipCls(c, i)"
             :aria-current="i === idx ? 'step' : undefined"
-            :aria-label="`Entry ${c.number}, ${STATUS_TEXT[status(c.id)]}`"
+            :aria-label="`Entry ${label(c)}, ${STATUS_TEXT[status(c.id)]}`"
             @click="idx = i"
-          >{{ c.number }}</button>
+          >{{ label(c) }}</button>
         </nav>
 
         <button
           v-if="candidates.length && criteria.length && view !== 'handover'"
-          class="flex flex-col gap-1.5 text-left" :aria-label="`${counts.sent} sent, ${counts.waiting} waiting, ${counts.draft} changed, ${counts.empty} not scored. See status.`"
+          class="flex flex-col gap-1.5 text-left" :aria-label="`${catCounts.sent} sent, ${catCounts.waiting} waiting, ${catCounts.draft} changed, ${catCounts.empty} not scored. See status.`"
           @click="view = 'sheets'"
         >
           <span class="flex gap-[2px] h-1.5 w-full" aria-hidden="true">
@@ -250,8 +131,8 @@ const chipCls = (c: Candidate, i: number) => {
             ></span>
           </span>
           <span class="num flex justify-between text-[11px] text-side-muted">
-            <span>{{ counts.sent }} sent<template v-if="counts.waiting"> · {{ counts.waiting }} waiting</template></span>
-            <span>{{ candidates.length - counts.empty }} of {{ candidates.length }} scored</span>
+            <span>{{ catCounts.sent }} sent<template v-if="catCounts.waiting"> · {{ catCounts.waiting }} waiting</template></span>
+            <span>{{ candidates.length - catCounts.empty }} of {{ candidates.length }} scored</span>
           </span>
         </button>
       </div>
@@ -284,7 +165,7 @@ const chipCls = (c: Candidate, i: number) => {
       </div>
 
       <div v-if="!event" class="card p-8 text-center text-muted">No events yet. Wait for the tabulator to set one up.</div>
-      <div v-else-if="!criteria.length || !candidates.length" class="card p-8 text-center text-muted">
+      <div v-else-if="!criteria.length || !allCandidates.length" class="card p-8 text-center text-muted">
         Waiting for the tabulator to add criteria and entries for this event.
       </div>
 
@@ -294,7 +175,7 @@ const chipCls = (c: Candidate, i: number) => {
         <Transition name="slide" mode="out-in">
         <section :key="cur.id" aria-labelledby="entry-name" class="card p-4 flex flex-col gap-3.5">
           <div class="flex items-center gap-3">
-            <span class="display num w-12 h-12 rounded-xl bg-accent-soft text-accent-ink grid place-items-center text-xl font-bold shrink-0">#{{ cur.number }}</span>
+            <span class="display num w-12 h-12 rounded-xl bg-accent-soft text-accent-ink grid place-items-center text-xl font-bold shrink-0">{{ label(cur) }}</span>
             <div class="flex-1 min-w-0 flex flex-col gap-0.5">
               <h2 id="entry-name" class="text-lg font-bold truncate">{{ cur.name }}</h2>
               <span class="num text-[13px] text-muted">{{ filledCount(cur.id) }} of {{ criteria.length }} criteria scored</span>
@@ -358,14 +239,14 @@ const chipCls = (c: Candidate, i: number) => {
                     class="display w-[34px] h-[34px] rounded-[9px] grid place-items-center text-[15px] font-bold"
                     :class="status(c.id) === 'sent' ? 'bg-ok-soft text-ok' : status(c.id) === 'waiting' ? 'bg-warn-soft text-warn' : 'bg-accent-soft text-accent-ink'"
                     :title="STATUS_TEXT[status(c.id)]"
-                  >{{ c.number }}</span>
+                  >{{ label(c) }}</span>
                 </th>
                 <td v-for="k in criteria" :key="k.id" class="px-[3px] py-2">
                   <input
                     class="score-input !h-11 !text-[17px] !rounded-[9px] w-full" :class="{ filled: getScore(c.id, k.id) !== '' }"
                     type="number" inputmode="decimal" min="0" :max="k.max_score" step="any" placeholder="–"
                     :value="getScore(c.id, k.id)" :disabled="locked"
-                    :aria-label="`Entry ${c.number}, ${k.name}, out of ${k.max_score}`"
+                    :aria-label="`Entry ${label(c)}, ${k.name}, out of ${k.max_score}`"
                     :aria-invalid="!!errorFor(c.id, k)" :title="errorFor(c.id, k) || undefined"
                     @input="setScore(c.id, k.id, ($event.target as HTMLInputElement).value)"
                   />
@@ -418,10 +299,10 @@ const chipCls = (c: Candidate, i: number) => {
         </section>
 
         <section aria-labelledby="sheets-title" class="card overflow-hidden">
-          <h2 id="sheets-title" class="px-4 py-3.5 text-sm font-semibold text-muted border-b border-line">{{ event.name }} · {{ candidates.length }} entries</h2>
+          <h2 id="sheets-title" class="px-4 py-3.5 text-sm font-semibold text-muted border-b border-line">{{ event.name }} · {{ allCandidates.length }} entries</h2>
           <ul>
-            <li v-for="(c, i) in candidates" :key="c.id" class="flex items-center gap-3 px-4 py-3 anim-fade-up" :class="{ 'border-t border-line': i > 0 }" :style="{ '--i': i }">
-              <span class="num w-9 h-9 rounded-[10px] bg-accent-soft text-accent-ink grid place-items-center font-bold text-sm shrink-0">{{ c.number }}</span>
+            <li v-for="(c, i) in allCandidates" :key="c.id" class="flex items-center gap-3 px-4 py-3 anim-fade-up" :class="{ 'border-t border-line': i > 0 }" :style="{ '--i': i }">
+              <span class="num w-9 h-9 rounded-[10px] bg-accent-soft text-accent-ink grid place-items-center font-bold text-sm shrink-0">{{ label(c) }}</span>
               <span class="flex-1 min-w-0 flex flex-col gap-0.5">
                 <span class="font-semibold truncate">{{ c.name }}</span>
                 <span class="text-[13px]" :class="STATUS_CLS[status(c.id)]">{{ STATUS_TEXT[status(c.id)] }}</span>
@@ -441,10 +322,10 @@ const chipCls = (c: Candidate, i: number) => {
       />
     </main>
 
-    <footer v-if="event && criteria.length && candidates.length && (view === 'one' || view === 'all')" class="sticky bottom-0 bg-ground/95 backdrop-blur border-t border-line">
+    <footer v-if="event && criteria.length && allCandidates.length && (view === 'one' || view === 'all')" class="sticky bottom-0 bg-ground/95 backdrop-blur border-t border-line">
       <div class="max-w-[640px] mx-auto px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] flex flex-col gap-2">
         <button class="num text-[13px] text-muted text-center min-h-8 hover:text-ink" @click="view = 'sheets'">
-          {{ complete }} of {{ candidates.length }} sheets complete<template v-if="waitingCount"> · {{ waitingCount }} waiting to send</template> · <span class="underline underline-offset-2">See status</span>
+          {{ complete }} of {{ allCandidates.length }} sheets complete<template v-if="waitingCount"> · {{ waitingCount }} waiting to send</template> · <span class="underline underline-offset-2">See status</span>
         </button>
         <button class="btn btn-primary btn-lg" :disabled="locked || !readyToSend.length" @click="submitReady">
           {{ readyToSend.length ? `Submit ${readyToSend.length} ready sheet${readyToSend.length > 1 ? 's' : ''}` : 'No new sheets to submit' }}

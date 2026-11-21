@@ -1,10 +1,15 @@
 from django.contrib import admin
 
-from .models import Candidate, Criterion, Event, Judge, Score
+from .models import Candidate, Category, Criterion, Event, Judge, Score
 
 
 class CriterionInline(admin.TabularInline):
     model = Criterion
+    extra = 0
+
+
+class CategoryInline(admin.TabularInline):
+    model = Category
     extra = 0
 
 
@@ -17,7 +22,7 @@ class CandidateInline(admin.TabularInline):
 class EventAdmin(admin.ModelAdmin):
     list_display = ['name', 'locked', 'created_at']
     list_filter = ['locked']
-    inlines = [CriterionInline, CandidateInline]
+    inlines = [CriterionInline, CategoryInline, CandidateInline]
 
 
 @admin.register(Judge)

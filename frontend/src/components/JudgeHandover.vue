@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import QRCode from 'qrcode'
 import { encodeHandover, type HandoverPayload } from '../handover'
+import { entryLabel } from '../scoring'
 import type { TabEvent } from '../types'
 import Icon from './Icon.vue'
 
@@ -96,7 +97,7 @@ const rows = computed(() => props.payload.sheets.map(s => ({
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.candidateId" class="border-t border-line">
-            <th scope="row" class="text-left px-3 py-2.5 font-bold">#{{ r.candidate?.number ?? '?' }}</th>
+            <th scope="row" class="text-left px-3 py-2.5 font-bold">{{ r.candidate ? entryLabel(event, r.candidate) : '?' }}</th>
             <td v-for="k in crit" :key="k.id" class="px-2 py-2.5 text-right font-semibold">{{ r.scores[k.id] ?? '–' }}</td>
           </tr>
         </tbody>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { data, importSheets } from '../store'
-import { fmt, judgeTotal, parseScore, scoreError } from '../scoring'
+import { entryLabel, fmt, groups, judgeTotal, parseScore, scoreError } from '../scoring'
 import { HandoverCollector, toImportItems, type HandoverPayload } from '../handover'
 import type { Id, ImportItem, TabEvent } from '../types'
 import Icon from './Icon.vue'
@@ -107,7 +107,8 @@ function readPasted() {
 const typeJudge = ref<Id | null>(props.judgeId ?? data.judges[0]?.id ?? null)
 const grid = ref<Record<string, number | ''>>({})
 const gkey = (cId: Id, kId: Id) => `${cId}:${kId}`
-const entries = computed(() => [...props.event.candidates].sort((a, b) => a.number - b.number))
+const entries = computed(() => groups(props.event).flatMap(g => g.candidates))
+const label = (c: { number: number; category: number | null }) => entryLabel(props.event, c)
 const existing = (cId: Id, kId: Id): number | '' =>
   (typeJudge.value !== null ? data.scores[props.event.id]?.[cId]?.[typeJudge.value]?.[kId] : undefined) ?? ''
 watch(typeJudge, () => { grid.value = {} })
@@ -215,7 +216,7 @@ function again() {
                 </thead>
                 <tbody>
                   <tr v-for="(r, i) in previewRows" :key="r.candidateId" class="border-t border-line anim-fade-up" :style="{ '--i': i }">
-                    <th scope="row" class="text-left px-3 py-2.5"><span class="text-muted">#{{ r.entry?.number ?? '?' }}</span> {{ r.entry?.name ?? 'Removed entry' }}</th>
+                    <th scope="row" class="text-left px-3 py-2.5"><span class="text-muted">{{ r.entry ? label(r.entry) : '?' }}</span> {{ r.entry?.name ?? 'Removed entry' }}</th>
                     <td v-for="k in previewEvent.criteria" :key="k.id" class="px-2 py-2.5 text-right">{{ r.scores[k.id] ?? '–' }}</td>
                     <td class="px-2 py-2.5 text-right font-bold">{{ fmt(r.total) }}</td>
                     <td class="px-3 py-2.5 text-xs" :class="r.onFile ? 'text-muted' : 'text-accent-ink font-semibold'">{{ r.onFile ? 'Has a copy' : 'New' }}</td>
@@ -293,12 +294,12 @@ function again() {
                   </thead>
                   <tbody>
                     <tr v-for="c in entries" :key="c.id" class="border-t border-line" :class="{ 'bg-accent-soft/40': rowChanged(c.id) }">
-                      <th scope="row" class="text-left px-3 py-2 text-sm"><span class="text-muted">#{{ c.number }}</span> {{ c.name }}</th>
+                      <th scope="row" class="text-left px-3 py-2 text-sm"><span class="text-muted">{{ label(c) }}</span> {{ c.name }}</th>
                       <td v-for="k in event.criteria" :key="k.id" class="px-1 py-1.5">
                         <input
                           class="score-input !h-10 !text-base !rounded-lg w-full" :class="{ filled: cell(c.id, k.id) !== '' }"
                           type="number" inputmode="decimal" min="0" :max="k.max_score" step="any" placeholder="–"
-                          :value="cell(c.id, k.id)" :aria-label="`Entry ${c.number}, ${k.name}`"
+                          :value="cell(c.id, k.id)" :aria-label="`Entry ${label(c)}, ${k.name}`"
                           :aria-invalid="!!scoreError(k, cell(c.id, k.id))" :title="scoreError(k, cell(c.id, k.id)) || undefined"
                           @input="setCell(c.id, k.id, ($event.target as HTMLInputElement).value)"
                         />

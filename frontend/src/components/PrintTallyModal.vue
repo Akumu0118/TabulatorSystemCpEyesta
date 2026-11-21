@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { data, rankingsFor } from '../store'
-import { fmt } from '../scoring'
+import { entryLabel, fmt, groups } from '../scoring'
 import type { TabEvent } from '../types'
 import Icon from './Icon.vue'
 import logo from '../assets/brand/icpep-logo.png'
@@ -9,7 +9,17 @@ import logo from '../assets/brand/icpep-logo.png'
 const props = defineProps<{ event: TabEvent }>()
 defineEmits<{ close: [] }>()
 
-const rows = computed(() => rankingsFor(props.event))
+const rows = computed(() => {
+  const list = rankingsFor(props.event)
+  const first = new Map<number, string>()
+  if (props.event.categories.length) {
+    for (const g of groups(props.event)) {
+      const r = list.find(x => g.candidates.some(c => c.id === x.id))
+      if (r) first.set(r.id, g.name)
+    }
+  }
+  return list.map(r => ({ ...r, label: entryLabel(props.event, r), groupStart: first.get(r.id) ?? '' }))
+})
 const missing = computed(() => rows.value.some(r => r.judged < data.judges.length))
 const printed = new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const signers = ['Tabulator', 'Head Judge', 'Chairman of Judges']
@@ -68,14 +78,19 @@ const print = () => window.print()
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="r in rows" :key="r.id">
+                <template v-for="r in rows" :key="r.id">
+                <tr v-if="r.groupStart" class="bg-[#F7F8FA]">
+                  <th :colspan="3 + data.judges.length" scope="colgroup" class="px-3 py-2 text-left border border-[#C9D0DA] text-[13px]">{{ r.groupStart }}</th>
+                </tr>
+                <tr>
                   <td class="px-3 py-[11px] border border-[#C9D0DA] font-bold">{{ r.rank }}</td>
-                  <td class="px-3 py-[11px] border border-[#C9D0DA]"><span class="text-[#536071] mr-1.5">#{{ r.number }}</span>{{ r.name }}</td>
+                  <td class="px-3 py-[11px] border border-[#C9D0DA]"><span class="text-[#536071] mr-1.5">{{ r.label }}</span>{{ r.name }}</td>
                   <td v-for="j in data.judges" :key="j.id" class="px-3 py-[11px] border border-[#C9D0DA] text-right">
                     {{ r.totals[j.id] !== undefined ? fmt(r.totals[j.id]) : '–' }}
                   </td>
                   <td class="px-3 py-[11px] border border-[#C9D0DA] text-right font-bold">{{ r.judged ? fmt(r.avg) : '–' }}</td>
                 </tr>
+                </template>
               </tbody>
             </table>
 

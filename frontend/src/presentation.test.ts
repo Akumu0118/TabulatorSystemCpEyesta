@@ -8,7 +8,8 @@ const event: TabEvent = {
     { id: 11, name: 'Poise', weight: 60, max_score: 10 },
     { id: 12, name: 'Q&A', weight: 40, max_score: 20 }
   ],
-  candidates: [1, 2, 3, 4, 5].map(n => ({ id: n * 100, number: n, name: `C${n}` }))
+  categories: [],
+  candidates: [1, 2, 3, 4, 5].map(n => ({ id: n * 100, number: n, name: `C${n}`, category: null }))
 }
 const judges: Judge[] = [{ id: 7, name: 'A' }, { id: 8, name: 'B' }]
 /** sheets[n] = [poise, qa] for both judges */
@@ -73,3 +74,24 @@ describe('presentation steps', () => {
     }
   })
 })
+
+describe('presentation with categories', () => {
+  const split: TabEvent = {
+    ...event,
+    categories: [{ id: 2, name: 'Male', order: 1 }, { id: 1, name: 'Female', order: 0 }],
+    candidates: event.candidates.map(c => ({ ...c, category: c.number <= 3 ? 1 : 2 }))
+  }
+
+  it('runs the awards and the reveal once per category, in category order, ranking each on its own', () => {
+    const steps = buildSteps(split, judges, scoresFor({ 1: [9, 10], 2: [8, 20], 3: [7, 5], 4: [6, 4], 5: [5, 3] }))
+    const champs = steps.filter(s => s.kind === 'champion')
+    expect(champs.map(s => s.group)).toEqual(['Female', 'Male'])
+    expect(champs.map(s => s.kind === 'champion' && s.rows.map(r => r.number))).toEqual([[2], [4]])
+    const tables = steps.filter(s => s.kind === 'table')
+    expect(tables.map(s => s.kind === 'table' && s.rows.map(r => r.rank))).toEqual([[1, 2, 3], [1, 2]])
+    expect(steps.filter(s => s.kind === 'criterion-intro')).toHaveLength(4)
+    expect(kinds(steps).at(-1)).toBe('closing')
+    expect(cue(champs[1])).toMatch(/^Male: Champion/)
+  })
+})
+

@@ -11,10 +11,18 @@ export interface Criterion {
   max_score: number
 }
 
+export interface Category {
+  id: Id
+  name: string
+  order: number
+}
+
 export interface Candidate {
   id: Id
   number: number
   name: string
+  /** The category this entry is ranked in, or null when the event has none. */
+  category: Id | null
 }
 
 export interface TabEvent {
@@ -24,6 +32,8 @@ export interface TabEvent {
   /** ISO time when results were made final, or null. */
   finalized_at: string | null
   criteria: Criterion[]
+  /** Groups ranked separately (e.g. Female, Male). Empty when the event ranks everyone together. */
+  categories: Category[]
   candidates: Candidate[]
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { data } from '../../store'
-import { criterionAverages, fmt, weighted } from '../../scoring'
+import { criterionAverages, entryLabel, fmt, weighted } from '../../scoring'
 import type { RankingRow, TabEvent } from '../../types'
 import CountUp from '../CountUp.vue'
 
@@ -9,7 +9,9 @@ import CountUp from '../CountUp.vue'
  * Standings as stacked bars on a fixed 0–100 scale: each segment is what one criterion
  * contributes to the entry's average total. The table below the chart has the exact numbers.
  */
-const props = defineProps<{ event: TabEvent; rows: RankingRow[]; note?: string }>()
+const props = defineProps<{ event: TabEvent; rows: RankingRow[]; note?: string; title?: string }>()
+const uid = `standings-${Math.random().toString(36).slice(2, 8)}`
+const lbl = (r: RankingRow) => entryLabel(props.event, r)
 
 const crit = computed(() => props.event.criteria.map((c, i) => ({ ...c, color: `var(--c${(i % 6) + 1})` })))
 const bars = computed(() => props.rows.filter(r => r.judged > 0).map(r => {
@@ -32,10 +34,10 @@ const MEDAL = ['bg-gold text-surface', 'bg-[#94A3B8] text-white', 'bg-[#B87333] 
 </script>
 
 <template>
-  <section aria-labelledby="standings-title" class="card p-5 flex flex-col gap-4">
+  <section :aria-labelledby="uid" class="card p-5 flex flex-col gap-4">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="flex flex-col gap-1">
-        <h2 id="standings-title" class="display text-xl font-bold">Standings</h2>
+        <h2 :id="uid" class="display text-xl font-bold">{{ title ?? 'Standings' }}</h2>
         <span class="text-[13px] text-muted">{{ note ?? 'Average total out of 100, split by what each criterion adds' }}</span>
       </div>
       <ul class="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]" aria-label="Legend">
@@ -54,11 +56,11 @@ const MEDAL = ['bg-gold text-surface', 'bg-[#94A3B8] text-white', 'bg-[#B87333] 
           v-for="(r, ri) in bars" :key="r.id"
           class="grid grid-cols-[34px_minmax(90px,200px)_1fr_64px] items-center gap-3 py-1.5 px-1 rounded-lg transition-colors"
           :class="r.rank === 1 ? 'bg-gold-soft/60' : ''"
-          :aria-label="`Rank ${r.rank}, #${r.number} ${r.name}, ${fmt(r.avg)} out of 100: ` + r.parts.map(p => `${p.c.name} ${fmt(p.pts)}`).join(', ')"
+          :aria-label="`Rank ${r.rank}, ${lbl(r)} ${r.name}, ${fmt(r.avg)} out of 100: ` + r.parts.map(p => `${p.c.name} ${fmt(p.pts)}`).join(', ')"
         >
           <span class="num w-[30px] h-[30px] rounded-full grid place-items-center text-sm font-bold"
                 :class="MEDAL[r.rank - 1] ?? 'text-muted'">{{ r.rank }}</span>
-          <span class="min-w-0 truncate"><span class="num text-muted mr-1.5">#{{ r.number }}</span><span class="font-semibold">{{ r.name }}</span></span>
+          <span class="min-w-0 truncate"><span class="num text-muted mr-1.5">{{ lbl(r) }}</span><span class="font-semibold">{{ r.name }}</span></span>
           <span class="relative h-[22px] rounded-md bg-sunken overflow-hidden flex">
             <span
               v-for="(p, pi) in r.parts" :key="p.c.id"
@@ -68,7 +70,7 @@ const MEDAL = ['bg-gold text-surface', 'bg-[#94A3B8] text-white', 'bg-[#B87333] 
                 background: p.c.color,
                 transition: `width .9s cubic-bezier(.2,.8,.2,1) ${ri * 60 + pi * 90}ms`
               }"
-              @mousemove="show($event, `#${r.number} ${r.name}`, [
+              @mousemove="show($event, `${lbl(r)} ${r.name}`, [
                 `${p.c.name}: average ${p.raw === null ? '–' : fmt(p.raw, 2)} / ${p.c.max_score}`,
                 `adds ${fmt(p.pts)} of ${p.c.weight} points`
               ])"

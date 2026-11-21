@@ -1,5 +1,5 @@
 import type {
-  AppState, Candidate, Criterion, Id, ImportItem, Judge, Role, ScoreSubmitResult, ServerInfo, Session, TabEvent
+  AppState, Candidate, Category, Criterion, Id, ImportItem, Judge, Role, ScoreSubmitResult, ServerInfo, Session, TabEvent
 } from './types'
 
 /** status 0 means the host could not be reached (offline or timed out). */
@@ -70,8 +70,14 @@ export const api = {
     request<Criterion>(`/criteria/${id}`, { method: 'PATCH', body: patch }),
   deleteCriterion: (id: Id) => request<void>(`/criteria/${id}`, { method: 'DELETE' }),
 
-  createCandidate: (event: Id, number: number, name: string) =>
-    request<Candidate>('/candidates', { method: 'POST', body: { event, number, name } }),
+  createCategory: (event: Id, name: string, order: number) =>
+    request<Category>('/categories', { method: 'POST', body: { event, name, order } }),
+  updateCategory: (id: Id, patch: Partial<Pick<Category, 'name' | 'order'>>) =>
+    request<Category>(`/categories/${id}`, { method: 'PATCH', body: patch }),
+  deleteCategory: (id: Id) => request<void>(`/categories/${id}`, { method: 'DELETE' }),
+
+  createCandidate: (event: Id, number: number, name: string, category: Id | null = null) =>
+    request<Candidate>('/candidates', { method: 'POST', body: { event, number, name, category } }),
   updateCandidate: (id: Id, patch: Partial<Omit<Candidate, 'id'>>) =>
     request<Candidate>(`/candidates/${id}`, { method: 'PATCH', body: patch }),
   deleteCandidate: (id: Id) => request<void>(`/candidates/${id}`, { method: 'DELETE' }),

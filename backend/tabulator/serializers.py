@@ -1,7 +1,7 @@
 from django.db.models import Max, Sum
 from rest_framework import serializers
 
-from .models import Candidate, Criterion, Event, Judge
+from .models import Candidate, Category, Criterion, Event, Judge
 
 
 class CriterionSerializer(serializers.ModelSerializer):
@@ -32,11 +32,40 @@ class CriterionSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'event', 'name', 'order']
+        extra_kwargs = {'event': {'write_only': True}}
+
+    def validate(self, attrs):
+        event = attrs.get('event') or self.instance.event
+        name = attrs.get('name', getattr(self.instance, 'name', '')).strip()
+        if not name:
+            raise serializers.ValidationError({'name': 'Give the category a name.'})
+        clash = event.categories.filter(name__iexact=name).exclude(pk=getattr(self.instance, 'pk', None))
+        if clash.exists():
+            raise serializers.ValidationError({'name': f'{event.name} already has a category called {name}.'})
+        attrs['name'] = name
+        return attrs
+
+    def update(self, instance, validated_data):
+        validated_data.pop('event', None)  # categories cannot move between events
+        return super().update(instance, validated_data)
+
+
 class CandidateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Candidate
-        fields = ['id', 'event', 'number', 'name']
-        extra_kwargs = {'event': {'write_only': True}}
+        fields = ['id', 'event', 'category', 'number', 'name']
+        extra_kwargs = {'event': {'write_only': True}, 'category': {'required': False}}
+
+    def validate(self, attrs):
+        event = attrs.get('event') or self.instance.event
+        category = attrs.get('category')
+        if category is not None and category.event_id != event.id:
+            raise serializers.ValidationError({'category': 'That category belongs to another event.'})
+        return attrs
 
     def update(self, instance, validated_data):
         validated_data.pop('event', None)
@@ -46,10 +75,11 @@ class CandidateSerializer(serializers.ModelSerializer):
 class EventSerializer(serializers.ModelSerializer):
     criteria = CriterionSerializer(many=True, read_only=True)
     candidates = CandidateSerializer(many=True, read_only=True)
+    categories = CategorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Event
-        fields = ['id', 'name', 'locked', 'finalized_at', 'criteria', 'candidates']
+        fields = ['id', 'name', 'locked', 'finalized_at', 'criteria', 'categories', 'candidates']
         read_only_fields = ['finalized_at']
 
     def validate(self, attrs):

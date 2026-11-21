@@ -13,9 +13,10 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
 from .auth import IsJudge, IsTabulatorAdmin, IsTabulatorUser, check_admin_password, make_admin_token
-from .models import Candidate, Criterion, Event, Judge, Score
+from .models import Candidate, Category, Criterion, Event, Judge, Score
 from .serializers import (
     CandidateSerializer,
+    CategorySerializer,
     CriterionSerializer,
     EventSerializer,
     JudgeSerializer,
@@ -56,7 +57,7 @@ login.cls.throttle_scope = 'login'
 def state(request):
     """Everything the UI needs in one call. Judges only receive their own scores and no access codes."""
     actor = request.user
-    events = Event.objects.prefetch_related('criteria', 'candidates')
+    events = Event.objects.prefetch_related('criteria', 'candidates', 'categories')
     judges = Judge.objects.all()
     scores = Score.objects.all()
     if not actor.is_admin:
@@ -255,7 +256,7 @@ class AdminOnly:
 
 
 class EventViewSet(AdminOnly, viewsets.ModelViewSet):
-    queryset = Event.objects.prefetch_related('criteria', 'candidates')
+    queryset = Event.objects.prefetch_related('criteria', 'candidates', 'categories')
     serializer_class = EventSerializer
 
     @action(detail=True, methods=['post'])
@@ -293,6 +294,15 @@ class CandidateViewSet(
 ):
     queryset = Candidate.objects.all()
     serializer_class = CandidateSerializer
+
+
+class CategoryViewSet(
+    AdminOnly, mixins.CreateModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+):
+    """Deleting a category keeps its entries; they simply have no category afterwards."""
+
+    queryset = Category.objects.select_related('event')
+    serializer_class = CategorySerializer
 
 
 class JudgeViewSet(AdminOnly, viewsets.ModelViewSet):

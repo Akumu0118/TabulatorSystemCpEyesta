@@ -1,14 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { data, rankingsFor } from '../store'
-import { criterionAverages, fmt } from '../scoring'
+import { criterionAverages, entryLabel, fmt, groups } from '../scoring'
 import type { Id, TabEvent } from '../types'
 
 const props = defineProps<{ event: TabEvent; pending: Id[] }>()
-const rows = computed(() => rankingsFor(props.event).map(r => ({
-  ...r,
-  crit: criterionAverages(props.event, data.judges, data.scores, r.id)
-})))
+/** With categories, the top row of each category carries the category name for a header row. */
+const rows = computed(() => {
+  const list = rankingsFor(props.event)
+  const first = new Map<number, string>()
+  if (props.event.categories.length) {
+    for (const g of groups(props.event)) {
+      const r = list.find(x => g.candidates.some(c => c.id === x.id))
+      if (r) first.set(r.id, g.name)
+    }
+  }
+  return list.map(r => ({
+    ...r,
+    label: entryLabel(props.event, r),
+    groupStart: first.get(r.id) ?? '',
+    crit: criterionAverages(props.event, data.judges, data.scores, r.id)
+  }))
+})
 const pendingNames = computed(() => data.judges.filter(j => props.pending.includes(j.id)).map(j => j.name))
 </script>
 
@@ -44,8 +57,11 @@ const pendingNames = computed(() => data.judges.filter(j => props.pending.includ
           </tr>
         </thead>
         <tbody>
+          <template v-for="r in rows" :key="r.id">
+          <tr v-if="r.groupStart" class="border-t border-line bg-ground">
+            <th :colspan="3 + event.criteria.length + data.judges.length" scope="colgroup" class="px-5 py-2 text-left text-[13px] font-bold">{{ r.groupStart }}</th>
+          </tr>
           <tr
-            v-for="r in rows" :key="r.id"
             class="border-t border-line"
             :class="r.rank === 1 && r.judged ? 'bg-gold-soft' : ''"
           >
@@ -55,7 +71,7 @@ const pendingNames = computed(() => data.judges.filter(j => props.pending.includ
                 :class="r.rank === 1 && r.judged ? 'bg-gold text-surface' : 'text-muted'"
               >{{ r.rank }}</span>
             </td>
-            <td class="px-2 py-3.5"><span class="text-muted mr-2">#{{ r.number }}</span><span class="font-semibold">{{ r.name }}</span></td>
+            <td class="px-2 py-3.5"><span class="text-muted mr-2">{{ r.label }}</span><span class="font-semibold">{{ r.name }}</span></td>
             <td v-for="c in event.criteria" :key="c.id" class="px-2 py-3.5 text-right text-muted">
               {{ r.crit[c.id] === null ? '–' : fmt(r.crit[c.id]!, 1) }}
             </td>
@@ -65,6 +81,7 @@ const pendingNames = computed(() => data.judges.filter(j => props.pending.includ
             </td>
             <td class="px-5 py-3.5 text-right display font-bold text-lg">{{ r.judged ? fmt(r.avg) : '–' }}</td>
           </tr>
+          </template>
         </tbody>
       </table>
     </div>
